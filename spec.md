@@ -8,28 +8,31 @@
 
 ## 1. アプリ概要・差別化ポジション
 
-**sokki**（速記）は、ローカル完結の macOS ネイティブ音声文字起こしアプリ。
+**sokki**（速記）は、オンデバイス処理を基盤としつつリアルタイム翻訳など任意のクラウド機能を BYO key で追加できる、macOS ネイティブの音声文字起こし + 同時通訳アプリ。**ローカル完結は「既定 ON のプライバシーモード」として選択可能**（従来の絶対条件から格下げ）。
 
 ### 最大の差別化ポイント
 
-**日本語話者分離の精度 + 声紋の永続記憶**
+**日本語話者分離の精度 + 声紋の永続記憶（オンデバイス） + リアルタイム翻訳（API ハイブリッド）**
 
-- 声紋ベクトル（256 次元）を SwiftData に永続化し、セッションをまたいで同じ人を認識する
+- 声紋ベクトル（256 次元）を SwiftData に永続化し、セッションをまたいで同じ人を認識する（オンデバイス完結）
 - コサイン類似度（vDSP）+ 指数移動平均更新で精度をセッションごとに向上させる
-- 日本語 diarization をローカル完結で実現するプロダクトは現時点で存在しない
+- 日本語 diarization をオンデバイスで実現するプロダクトは現時点で存在しない
+- リアルタイム翻訳は Apple Translation（オンデバイス既定）と Gemini Live Translate 等（BYO key）を `TranslationProvider` で切替可能
 
 ### 競合との差別化マトリクス
 
-| 条件 | sokki | MacWhisper Pro | WhisperMate | Granola | Japalog |
-|------|-------|---------------|-------------|---------|---------|
-| ローカル完結 | ✅ | ✅ | △ | ✅ | ✅ |
-| 高精度日本語 | ✅ | ✅ | ✅ | △ | ✅ |
-| 話者分離 | ✅ | △ Beta | △ クラウド | ❌ | ✅ |
-| **声紋永続記憶** | **✅** | ❌ | ❌ | ❌ | ✅ |
-| LLM 柔軟交換 | ✅ | △ | △ | ❌ | ❌ |
-| macOS SwiftUI | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Homebrew Cask | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **全条件同時** | **✅** | ❌ | ❌ | ❌ | ❌ |
+| 条件 | sokki | MacWhisper Pro | WhisperMate | Granola | Japalog | SuperIntern |
+|------|-------|---------------|-------------|---------|---------|-------------|
+| ローカル完結（選択可能なプライバシーモード） | ✅ | ✅ | △ | ✅ | ✅ | ❌ |
+| 高精度日本語 | ✅ | ✅ | ✅ | △ | ✅ | △ |
+| 話者分離（オンデバイス） | ✅ | △ Beta | △ クラウド | ❌ | ✅ | △ |
+| **声紋永続記憶** | **✅** | ❌ | ❌ | ❌ | ✅ | ❌ |
+| **リアルタイム翻訳** | **✅ (Apple/BYO key)** | ❌ | ❌ | ❌ | ❌ | ✅ |
+| LLM 柔軟交換 | ✅ | △ | △ | ❌ | ❌ | ❌ |
+| 月額不要（BYO key） | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ ($20/月) |
+| macOS SwiftUI | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Homebrew Cask | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **全条件同時** | **✅** | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ---
 
@@ -37,12 +40,14 @@
 
 | レイヤー | 技術 | バージョン |
 |---|---|---|
-| 音声キャプチャ | ScreenCaptureKit（単一 SCStream） | macOS 15+ |
+| 音声キャプチャ | Core Audio Taps（ProcessTap）または ScreenCaptureKit（単一 SCStream） | macOS 15+（D-1 / D-10） |
 | 文字起こし | WhisperKit (`argmax-oss-swift`) | v1.0+ |
-| 話者分離 | SpeakerKit（Pyannote v4 Core ML） | v0.18+ |
+| 話者分離 | FluidAudio（推奨）/ SpeakerKit（Pyannote v4 Core ML） | FluidAudio: Apache 2.0 / SpeakerKit: MIT |
+| 声紋 embedding | FluidAudio `extractEmbedding()`（256dim L2 正規化） | - |
+| リアルタイム翻訳（optional） | Apple Translation（既定）/ Gemini Live Translate / Google Cloud Translation v3 / DeepL（BYO key） | macOS 15+ / 各 API |
 | データ永続化 | SwiftData（SQLite） | macOS 15+ |
 | UI | SwiftUI | macOS 15+ |
-| LLM（optional） | OpenAI 互換 HTTP | - |
+| 後処理 LLM（optional, 将来） | OpenAI 互換 / Gemini Flash HTTP | - |
 | ベクトル演算 | Accelerate.framework（vDSP） | standard |
 
 ---
@@ -79,8 +84,13 @@ sokki/
 │   │   ├── MarkdownExporter.swift
 │   │   ├── SRTExporter.swift
 │   │   └── VTTExporter.swift
+│   ├── Translation/
+│   │   ├── TranslationProvider.swift       # protocol
+│   │   ├── AppleTranslationProvider.swift  # オンデバイス（既定）
+│   │   ├── GeminiLiveTranslateClient.swift # WebSocket（BYO key）
+│   │   └── PCMConverter.swift              # Float32 → Int16 変換
 │   ├── LLM/
-│   │   └── OpenAICompatClient.swift
+│   │   └── OpenAICompatClient.swift        # 後処理（任意・将来）
 │   ├── Models/                         # SwiftData @Model 群
 │   │   ├── SessionModel.swift
 │   │   ├── SegmentModel.swift
@@ -137,9 +147,11 @@ actor AudioCaptureManager: NSObject, SCStreamOutput {
 }
 ```
 
-**設計判断**: デュアル SCStream（Blackbox 実装）はデバイスアクセス競合リスクがある。
-`SCStreamOutputType.audio`（システム）/ `.microphone`（マイク）で分岐する単一 SCStream を採用。
-`AVAudioConverter` で 16 kHz mono Float32 に正規化してから下流へ。
+**設計判断**: システム音声キャプチャは 2 方式を `AudioCaptureManager` 内で選択可能にする（D-1 改訂 / D-10）。
+- **Core Audio Taps（推奨・既定）**: `CATapDescription` → Aggregate Device（`kAudioSubTapUIDKey` に `tapDescription.uuid.uuidString` を渡す）→ IOProc。Recap が MIT で参照実装（`ProcessTap` / `ProcessTapRecorder`）を提供。画面収録権限不要。
+- **ScreenCaptureKit（代替）**: `SCStreamOutputType.audio`（システム）/ `.microphone`（マイク）で分岐する単一 SCStream。デュアル SCStream はデバイスアクセス競合リスクがあるため不採用（D-1）。
+
+いずれも `AVAudioConverter` で 16 kHz mono Float32 に正規化してから下流へ。Both モードはシステム（tap）を先に起動し `tapStreamDescription` 確定後にマイクを起動（停止は逆順）。
 
 ### 4.2 TranscriptionEngine protocol / WhisperKitEngine
 
@@ -183,7 +195,7 @@ protocol DiarizationEngine: Actor {
 }
 ```
 
-FluidAudio `OfflineDiarizer` も同 protocol でドロップイン評価可能（将来）。
+**エンジン選定（D-5 / D-11）**: `SpeakerKit` は WhisperKit との統合が最も容易だが、v1.0 時点で声紋 embedding を直接公開しない（`SpeakerKitEngine` は現状 `embedding: nil`）。声紋永続記憶（最大の差別化）には embedding が必須のため、**`FluidAudio` を推奨エンジンとする**（`extractEmbedding()` が public・256 次元 L2 正規化済みで `SpeakerProfileStore` 設計と完全一致）。両者は同 protocol でドロップイン交換可能。リアルタイム話者分離は FluidAudio Sortformer（80ms・macOS 15+・日本語 DER 12.7%）を Phase 2 以降で評価する。
 
 ### 4.4 SpeakerProfileStore（actor）— 最重要差別化機能
 
@@ -216,6 +228,44 @@ struct EmbeddingMatcher {
     func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float
 }
 ```
+
+### 4.6 TranslationProvider protocol — リアルタイム翻訳（新規）
+
+> **完全な設計は [`docs/translation-architecture.md`](docs/translation-architecture.md)**（3案統合 + Swift6/Apple API 敵対的レビュー済み）。以下は要点のみ。Apple Translation 経路は実機 PoC が前提（同ドキュメント §0）。
+
+```swift
+public struct TranslationInput: Sendable, Identifiable {
+    public let id: UUID                  // = clientID。原文セグメントと同一キー（順序逆転に強い）
+    public let text: String
+    public let sourceTime: TimeInterval
+}
+public struct TranslationOutput: Sendable, Identifiable {
+    public let id: UUID                  // 対応する TranslationInput.id をエコーバック
+    public let translatedText: String
+    public let isConcluded: Bool
+    public let sourceTime: TimeInterval
+}
+
+public protocol TranslationProvider: Actor {
+    nonisolated var providerID: String { get }   // 監査タグ
+    nonisolated var isOnDevice: Bool { get }     // Gate が actor hop なしに参照
+    func prepare(source: Locale.Language, target: Locale.Language) async throws
+    func translateStream(_ inputs: AsyncStream<TranslationInput>)
+        -> AsyncThrowingStream<TranslationOutput, Error>
+    func teardown() async                        // socket/URLSession を確実クローズ（冪等）
+}
+```
+
+**責務分離（知能は provider に持たせず以下に集約）**:
+- `TranslationGate`（純粋関数・fail-closed）: クラウド送信可否を一元判定。`translationEnabled × privacyMode × isOnDevice × 明示選択 × key有無` の真理値表。**「ユーザー明示選択」と「auto の自動フォールバック」を区別**し、privacy ON では自動クラウド送信を拒否、明示選択のみオプトイン許可。
+- `TranslationRouter`（actor）: `LanguageAvailability.status` で Apple 対応判定 → 未対応なら BYO 自動FB。
+- `TranslationCoordinator`（@MainActor 状態機械）: `prepare()`〜`teardown()` の間だけ provider 生存。設定変化で即 teardown。
+
+**プロバイダ実装方針**:
+- `AppleTranslationProvider`（既定・オンデバイス）: `TranslationSession` は公開 init を持たず `.translationTask` closure 内でのみ有効。**closure 外へ出すと fatal error**。常駐の不可視ホスト View 内 drain ループで処理し、actor 境界を越えるのは値型のみ。
+- `GeminiLiveTranslateClient`（BYO key）: `URLSessionWebSocketTask`。プレビューのため実験的扱い。
+- `DeepLProvider`（BYO key）: REST（キーがシンプルで BYO の現実的第一候補）。
+- `GoogleCloudTranslationV3Provider`（BYO key）: v3 は OAuth2/サービスアカウント必須（生 API キー不可）→ 着手は後回し。
 
 ---
 
@@ -285,10 +335,22 @@ struct EmbeddingMatcher {
     var llmModel: String?
     var transcriptionEngine: String = "whisperkit"
     var whisperModelVariant: String = "large-v3-turbo"
+    var diarizationEngine: String = "fluidaudio"   // "fluidaudio" | "speakerkit"
     var diarizationEnabled: Bool = true
     var numberOfSpeakers: Int = 0    // 0 = 自動
     var embeddingMatchThreshold: Float = 0.82
     var embeddingEMAAlpha: Float = 0.1
+
+    // --- 音声キャプチャ ---
+    var systemAudioBackend: String = "coreaudiotap"  // "coreaudiotap" | "screencapturekit"
+
+    // --- プライバシー / 翻訳 ---
+    var privacyModeEnabled: Bool = true              // 既定 ON: クラウド送信を遮断
+    var translationEnabled: Bool = false             // 翻訳 ON/OFF トグル
+    var translationProvider: String = "auto"         // "auto" | "apple" | "gemini" | "googlev3" | "deepl"
+    var translationSourceLanguage: String = "ja"
+    var translationTargetLanguage: String = "en"
+    // BYO key は SwiftData に置かず KeychainStore で管理（D-17）。ここには保持しない
 }
 ```
 
@@ -310,6 +372,12 @@ let package = Package(
         .package(
             url: "https://github.com/argmaxinc/argmax-oss-swift",
             from: "1.0.0"
+        ),
+        // 話者分離 + 声紋 embedding（推奨）。extractEmbedding() が public（Apache 2.0）
+        // 調査時点の最新は 0.12.4。採用前に最新版を確認すること
+        .package(
+            url: "https://github.com/FluidInference/FluidAudio",
+            from: "0.12.4"
         ),
     ],
     targets: [
@@ -340,13 +408,19 @@ let package = Package(
 ### RecordingView（Kanary 踏襲）
 
 - 上部にセグメントコントロール: `Mic` / `System` / `Both`
+- 上部右に **ローカル/API インジケーター**（プライバシーモード状態を明示）と **翻訳 ON/OFF トグル**
 - 波形表示: マイク = 青（#3B82F6）、システム = 赤（#EF4444）
   - 左右分割で常時表示、50ms 更新周期
   - ピークメーター: -60〜0 dB、クリッピング時赤点灯
-- 中央にライブ文字起こし:
-  - Confirmed テキスト（黒、確定済み）
-  - Hypothesis テキスト（グレー、仮テキスト）
+- 中央にライブ文字起こし（翻訳 ON 時は 2 レーン: 原文 / 訳文）:
+  - Confirmed / concluded テキスト（黒、確定済み）
+  - Hypothesis / tentative テキスト（グレー、仮テキスト）
 - 下部に大きな録音ボタン + 経過時間
+
+### 翻訳字幕オーバーレイ（新規・Phase 2.5）
+
+- 会議ウィンドウ横にフローティング表示（原文 + 訳文の 2 レーン）
+- 翻訳 OFF / プライバシーモードで `isOnDevice == false` プロバイダ未許可時は非表示
 
 ### SpeakerProfileView（差別化 UI）
 
@@ -383,24 +457,35 @@ let package = Package(
 - 波形 / レベルメーター表示
 - セグメント同期音声再生
 
+### Phase 2.5 — リアルタイム翻訳（新規）
+
+- `TranslationProvider` protocol + `AppleTranslationProvider`（オンデバイス既定）
+- `GeminiLiveTranslateClient`（WebSocket, `PCMConverter` で Float32→Int16, BYO key）
+- 翻訳字幕 2 レーン UI + フローティングオーバーレイ
+- 翻訳 ON/OFF トグル + プロバイダ/言語選択（SettingsView）
+
 ### Phase 3 — 話者分離・声紋永続化
 
-- SpeakerKit 連携（`SpeakerKitEngine`）
-- `SpeakerProfileStore` 実装
+- 話者分離エンジン連携（**FluidAudio 推奨** / SpeakerKit 代替）
+- `SpeakerProfileStore` 実装 + **diarization → Store 配線（embedding nil の解消）**
 - `SpeakerProfileView` UI
 - 話者カラーバー付き `SessionDetailView`
 
 ### Phase 4 — エクスポート拡充・エンジン追加
 
-- SRT / VTT エクスポート
+- SRT / VTT エクスポート（実装済み・確認のみ）
 - Apple SpeechAnalyzer エンジン（macOS 26+）
 - ファイルインポート（.mp4 / .m4a / .wav / .mp3）
 
-### Phase 5 — LLM 連携・配布
+### Phase 5 — 配布・プライバシー
 
-- OpenAI 互換エンドポイント（話者名推定・サマリー）
 - Homebrew Cask 配布設定
-- `OpenAICompatClient` + `SpeakerNamingService`
+- プライバシーモード切替 UI + ローカル/API インジケーター
+
+### Phase 6 — LLM 後処理（任意・将来 / 当面スコープ外）
+
+- 要約・アクション抽出・会議後チャット（OpenAI 互換 / Gemini Flash）
+- `OpenAICompatClient` + `SpeakerNamingService`（話者名推定はここに含む）
 
 ---
 
@@ -408,7 +493,15 @@ let package = Package(
 
 | # | 判断 | 理由 |
 |---|------|------|
-| D-1 | 単一 SCStream 方式 | デュアル SCStream はデバイスアクセス競合リスクがある。Apple 推奨の OutputType 分岐を採用 |
+| D-1 | システム音声は単一 SCStream（代替）/ Core Audio Taps（既定） | デュアル SCStream はデバイスアクセス競合リスクがあるため不採用。SCStream は OutputType 分岐の単一構成に限定。D-10 で Core Audio Taps を既定に追加 |
+| D-10 | Core Audio Taps（ProcessTap）を既定のシステム音声キャプチャに | 画面収録権限不要、プロセス単位タップ、Recap の MIT 参照実装あり。SCStream は権限が必要なため代替に位置づけ |
+| D-11 | 話者分離は FluidAudio を推奨（SpeakerKit は代替） | SpeakerKit v1.0 は声紋 embedding を公開せず `embedding: nil`。声紋永続記憶に必須の embedding を `extractEmbedding()` で確実に取得できる FluidAudio を推奨。`DiarizationEngine` protocol でドロップイン交換 |
+| D-12 | リアルタイム翻訳は `TranslationProvider` 抽象 + Apple Translation 既定 | オンデバイス・無料・プライバシーモード適合を既定に。Gemini Live Translate 等のクラウドは BYO key オプションとし、プレビュー/高コストを実験的扱い |
+| D-13 | ローカル完結はプライバシーモード（既定 ON）に格下げ | 完全ローカルを絶対条件から外し選択可能モード化。`isOnDevice == false` プロバイダは明示オプトイン時のみ起動許可 |
+| D-14 | クラウド送信可否は `TranslationGate.evaluate`（純粋関数・fail-closed）に一元化 | provider に権限判定を分散させない。真理値表を実機なしで全網羅テスト。「明示選択」と「自動FB」を区別し privacy ON では自動クラウドを拒否（`docs/translation-architecture.md` §5） |
+| D-15 | 翻訳 provider は `prepare()`〜`teardown()` の間だけ生存 | クラウド socket を長命にしない構造的プライバシー担保。privacy/enabled 変化で即 teardown |
+| D-16 | `TranslationSession` は `.translationTask` closure 内に閉じ、常駐ホストの drain ループで処理 | closure 外で使うと fatal error。actor へ越境させるのは値型（id/text）のみ。**長時間 drain ループの成立は実機 PoC で要検証** |
+| D-17 | BYO key は SwiftData ではなく Keychain（`KeychainStore` 単一アクセス点） | 平文保存を避ける。`AppSettingsModel.translationApiKey` は廃止し Keychain へ移行 |
 | D-2 | 閾値 0.82 を初期値に | VoxCeleb EER 付近だが日本語では要実測調整。AppSettings で変更可 |
 | D-3 | EMA alpha=0.1 | セッションを重ねるほど精緻化。count>10 での alpha 低減を Phase 3 で追加 |
 | D-4 | `[Float]→Data` 保存 | SwiftData は `[Float]` を Attribute 直サポートしない。1024 bytes/プロファイルは合理的 |
@@ -416,7 +509,7 @@ let package = Package(
 | D-6 | Phase 1 MVP はバッチ文字起こし | リアルタイムストリーミングより動作確認が容易。ストリームは Phase 2 で追加 |
 | D-7 | xcodeproj を xcodegen で生成・管理 | `ENABLE_DEBUG_DYLIB` / Signing & Capabilities は SPM only では設定不可。`project.yml` で宣言的に管理 |
 | D-8 | `SokkiKit` (library) + `sokki` (executable) に分離 | `RenderPreview` / `ExecuteSnippet`（Xcode MCP）は Library target でのみ動作するため |
-| D-9 | Phase 1 は `AVAudioEngine`、Phase 2 で `SCStream` に切替 | Screen Recording 権限不要で MVP を先行確認できる。`AudioCaptureManager` は `CaptureMode` で分岐 |
+| D-9 | Phase 1 は `AVAudioEngine`（マイクのみ）、Phase 2 でシステム音声を **Core Audio Taps（ProcessTap）** へ拡張（D-10） | Screen Recording 権限不要で MVP を先行確認できる。Phase 2 の system レーンは SCStream ではなく Core Audio Taps を既定（SCStream は代替）。`AudioCaptureManager` は `CaptureMode` + `systemAudioBackend` で分岐 |
 
 ---
 
