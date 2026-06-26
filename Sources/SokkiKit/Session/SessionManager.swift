@@ -46,6 +46,12 @@ actor SessionManager {
         try modelContext.save()
     }
 
+    /// セッションの録音ファイル URL（録音書き出し先・P1-1）。
+    func audioURL(forSessionID sessionID: PersistentIdentifier) -> URL? {
+        guard let session = modelContext.model(for: sessionID) as? SessionModel else { return nil }
+        return URL(fileURLWithPath: session.audioFilePath)
+    }
+
     func allSessions() throws -> [SessionModel] {
         let descriptor = FetchDescriptor<SessionModel>(
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]

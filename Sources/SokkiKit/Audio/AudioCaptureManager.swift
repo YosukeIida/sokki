@@ -34,6 +34,7 @@ actor AudioCaptureManager {
     private(set) var systemLevelStream: AsyncStream<Float>
 
     private var audioEngine: AVAudioEngine?
+    private var fileWriter: AudioFileWriter?
     private let targetSampleRate: Double = 16_000
 
     init() {
@@ -54,13 +55,13 @@ actor AudioCaptureManager {
         _ = sysLvlCont
     }
 
-    func startCapture(mode: CaptureMode) async throws {
+    func startCapture(mode: CaptureMode, outputURL: URL? = nil) async throws {
         guard mode == .micOnly else {
             throw CaptureError.systemAudioRequiresPhase2
         }
         // 2回目以降の録音のために新しいストリームを作り直す（AsyncStream は使い捨て）
         resetStreams()
-        try await startMicCapture()
+        try await startMicCapture(outputURL: outputURL)
     }
 
     private func resetStreams() {
@@ -78,6 +79,9 @@ actor AudioCaptureManager {
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
+        // tap 停止後にファイルを閉じる（書き込み中の競合は AudioFileWriter のロックで防ぐ）
+        fileWriter?.close()
+        fileWriter = nil
         // ストリームを閉じる → transcribeStream の for-await ループが終了し、フラッシュが走る
         micContinuation?.finish()
         micContinuation = nil
@@ -85,7 +89,7 @@ actor AudioCaptureManager {
 
     // MARK: - Private
 
-    private func startMicCapture() async throws {
+    private func startMicCapture(outputURL: URL?) async throws {
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
@@ -102,9 +106,18 @@ actor AudioCaptureManager {
             return
         }
 
+        // 出力先が指定されていれば録音ファイルを開く（P1-1）。失敗しても録音・文字起こしは継続。
+        if let outputURL {
+            self.fileWriter = try? AudioFileWriter(url: outputURL, processingFormat: targetFormat)
+        }
+        let writer = self.fileWriter
+
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self else { return }
-            let converted = self.convert(buffer: buffer, using: converter, to: targetFormat)
+            guard let outBuffer = self.convertToBuffer(buffer, using: converter, to: targetFormat) else { return }
+            // 音声スレッドで同期書き込み（順序保証）。
+            writer?.write(outBuffer)
+            let converted = self.samples(from: outBuffer)
             let capturedAt = Date()
             Task {
                 await self.dispatchMic(samples: converted, capturedAt: capturedAt)
@@ -120,18 +133,18 @@ actor AudioCaptureManager {
         }
     }
 
-    private nonisolated func convert(
-        buffer: AVAudioPCMBuffer,
+    private nonisolated func convertToBuffer(
+        _ buffer: AVAudioPCMBuffer,
         using converter: AVAudioConverter,
         to targetFormat: AVAudioFormat
-    ) -> [Float] {
+    ) -> AVAudioPCMBuffer? {
         let frameCapacity = AVAudioFrameCount(
             Double(buffer.frameLength) * targetFormat.sampleRate / buffer.format.sampleRate
         )
         guard let outBuffer = AVAudioPCMBuffer(
             pcmFormat: targetFormat,
             frameCapacity: max(frameCapacity, 1)
-        ) else { return [] }
+        ) else { return nil }
 
         var error: NSError?
         var inputProvided = false
@@ -145,9 +158,13 @@ actor AudioCaptureManager {
             return buffer
         }
 
-        guard error == nil,
-              let channelData = outBuffer.floatChannelData?[0] else { return [] }
-        return Array(UnsafeBufferPointer(start: channelData, count: Int(outBuffer.frameLength)))
+        guard error == nil else { return nil }
+        return outBuffer
+    }
+
+    private nonisolated func samples(from buffer: AVAudioPCMBuffer) -> [Float] {
+        guard let channelData = buffer.floatChannelData?[0] else { return [] }
+        return Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
     }
 
     private func dispatchMic(samples: [Float], capturedAt: Date) {

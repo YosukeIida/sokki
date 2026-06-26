@@ -41,6 +41,7 @@ final class TranscriptionPipeline {
     private var captureTask: Task<Void, Error>?
     private var timerTask: Task<Void, Never>?
     private var currentSessionID: PersistentIdentifier?
+    private var recordingStartedAt: Date?
 
     init(
         captureManager: AudioCaptureManager,
@@ -72,8 +73,11 @@ final class TranscriptionPipeline {
 
         let sessionID = try await sessionManager.createSession(title: title, mode: mode)
         currentSessionID = sessionID
+        recordingStartedAt = Date()
 
-        try await captureManager.startCapture(mode: mode)
+        // 録音ファイルの書き出し先を渡す（P1-1）
+        let audioURL = await sessionManager.audioURL(forSessionID: sessionID)
+        try await captureManager.startCapture(mode: mode, outputURL: audioURL)
 
         isRunning = true
         elapsedSeconds = 0
@@ -111,6 +115,9 @@ final class TranscriptionPipeline {
     func stop() async throws {
         timerTask?.cancel()
 
+        // 録音長は「開始〜停止操作まで」の実時間で確定（後続フラッシュ時間を含めない・P1-2）
+        let duration = recordingStartedAt.map { Date().timeIntervalSince($0) }
+
         // 1. ストリームを閉じる（transcribeStream のフラッシュがトリガーされる）
         await captureManager.stopCapture()
 
@@ -129,6 +136,12 @@ final class TranscriptionPipeline {
         captureTask = nil
 
         isRunning = false
+
+        // 録音長を保存（P1-2）。失敗してもセッション自体は保持する。
+        if let sid = currentSessionID, let duration {
+            try? await sessionManager.updateDuration(sessionID: sid, duration: duration)
+        }
+        recordingStartedAt = nil
         // Phase 3 で: diarization をバッチ実行
     }
 
