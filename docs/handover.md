@@ -77,3 +77,45 @@ RecordingView の視覚案 Artifact（**最新 v4**）:
 
 ## 6. 作業スタイル（ユーザー指示・モデル不問で適用）
 - 比較的簡単な実装は **sonnet に委譲**、難所は **opus**。**dynamic workflow（Workflow ツール）を積極活用**。委譲は対象ファイル・設計方針・完了条件・規約を明記し、成果はメインでレビュー。
+
+---
+
+## 7. 2026-07-12 セッションの記録（次回はここから読む）
+
+> ⚠️ **セクション 1〜5 は 2026-07-03 時点の記述で一部古い。最新状態は本セクションと backlog（正本）で確認すること。** タスク状態は backlog（`backlog/`）、GitHub Issues は同期ミラー。
+
+### 7.1 このセッションで完了・コミットしたこと（すべて push 済みでなく local commit）
+ブランチ `feat/phase1-mvp-finish` に以下を積んだ（新しい順）:
+- `c64ec93` chore(backlog): P1-6 完了処理 + TASK-38 追加
+- `647cc5e` design(P1-6c): 話者プロファイル / 設定モック（TASK-9.3 / #60 closed）
+- `fd7aac9` feat(P1-6b): **SwiftUI デザイントークン基盤**（TASK-9.2 / #59 closed・opus 実装）
+- `45a387c` design(P1-6a): 一覧 / 詳細モック（TASK-9.1 / #58 closed）
+- `5cd5388` feat(P1-5): エクスポート保存ダイアログ + Security-Scoped Bookmark（TASK-8 / #27 closed）
+- `d82240d` docs: タスク正本を backlog へ移行 + design モック追加
+- `015852f` chore(backlog): **Backlog.md 導入・正本化**（マイルストーン Phase1〜6、TASK-1〜38+DRAFT-1）
+
+`swift test` は 48 件全 pass（既知 Snapshot 失敗も今回は未発生）。作業ツリーはクリーン、`.claude/` `.codex/` のみ未追跡（ユーザー指示で追跡しない）。
+
+### 7.2 タスク管理の状態
+- **backlog が正本**。マイルストーン Phase1〜6、TASK-1〜39 + DRAFT-1。GitHub Issues #23〜#62 が同期ミラー。同期ルールは CLAUDE.md 参照。
+- Phase1 の残 To Do: **TASK-39（バグ・最優先）→ TASK-6（E2E, #25）→ TASK-7（Markdown 実機確認, #26）**。TASK-6 は TASK-39 に依存。
+- 確定事項: 話者ラベルは**ロケール追従**（ja=話者A / en=Speaker A）。SwiftUI 側は `SpeakerLabel.displayName` として実装済み（`Sources/SokkiKit/DesignSystem/`）。
+- デザインモック 5 枚（`docs/design/*.html`）と SwiftUI デザイントークン基盤は完成。ただし**既存画面（RecordingView 等）への再スタイリング（トークン適用）は未着手**＝現状の実機 UI は素の SwiftUI。必要ならタスク新設。
+
+### 7.3 ⚠️ 実機起動で判明したブロッカー: TASK-39 / #62（次回まず対応）
+- **症状**: ビルド済み `sokki.app`（DerivedData）の Info.plist に `NSMicrophoneUsageDescription` が無い → 録音時にクラッシュする（macOS 仕様）。**テストでは検出できない実行時バグ。** アプリの起動自体はでき、録音ボタンを押すまでは動くと見込まれる。
+- **根本原因（確定済み）**: `project.yml` の `sokki` アプリターゲットの `info:` が `path: Info.plist` のみで **`properties:` を持たない**（HEAD 版 51 行目 `sokki:` → 56 行目付近）。そのため xcodegen 生成の Info.plist に使用目的キーが入らない。
+- **修正（ターンキー）**: `sokki` ターゲットの `info:` に `properties:` を足し、`NSMicrophoneUsageDescription` と `NSSpeechRecognitionUsageDescription` を記述 → `xcodegen generate` → クリーンビルド → `plutil -p .../sokki.app/Contents/Info.plist | grep -i microphone` で確認。entitlements（4 権限）は `sokki.entitlements` 側にあり触らない。
+- **project.yml は破損していない**（調査中のツール不安定で「マイクキーがある」「依存重複」と誤認したが、安定後の `git show HEAD:project.yml` で否定済み。settings/info/dependencies の複数出現は 3 ターゲットぶんの正常構造）。
+
+### 7.4 環境メモ（重要な更新）
+- **Xcode MCP の自動化許可ダイアログ問題は恒久解決済み**（TCC.db 直挿入）。詳細は memory `xcode-automation-tcc.md`。Homebrew で claude が更新されパスが変わると再発しうる（対処手順も同メモに記載）。
+- Xcode MCP の `tabIdentifier` はセッションごとに変わる（`windowtab1`→`windowtab2` 等）。`XcodeListWindows` で都度確認。
+- **このセッション終盤、大量の PNG（RenderPreview 結果）を Read した後にツール出力が不安定化**（Bash/Read の出力が途中で切れる・幻のテキスト混入）。→ ユーザーに `/clear` を依頼。**破壊的操作の前は必ず `git show`/`git status` で裏取りすること**（この教訓で TASK-39 の誤認を回避できた）。
+
+### 7.5 次にやること（順番）
+1. **TASK-39（#62）を修正** — project.yml の sokki ターゲットに info.properties 追加 → xcodegen generate → 再ビルド → plutil でマイク/音声認識キーを確認。
+2. **TASK-6（#25）実機 E2E** — ⌘R でマイク録音→文字起こし→一覧の録音長→詳細セグメント→`~/Library/Application Support/sokki/recordings/*.m4a` 生成を確認（マイク操作・許可はユーザー）。
+3. **TASK-7（#26）** Markdown エクスポート実機確認（ついでに TASK-8 の「ファイルへ保存…」動作確認）。
+4. （任意）既存画面を `SokkiTokens` で再スタイリングするタスクを新設し、モックの見た目に寄せる。
+5. Phase1 完了後、Phase2 は **TASK-10（P2-0 配布方針決定）がブロッカー**なので先に。
