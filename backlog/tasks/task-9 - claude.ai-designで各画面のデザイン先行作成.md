@@ -1,10 +1,10 @@
 ---
 id: TASK-9
 title: claude.ai/designで各画面のデザイン先行作成
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-11 16:34'
-updated_date: '2026-07-11 17:39'
+updated_date: '2026-07-11 18:39'
 labels:
   - Phase1
   - design
@@ -35,13 +35,17 @@ ordinal: 9000
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 話者ラベル表記を確定する（→ ロケール追従（ja=話者A / en=Speaker A）に決定済み・2026-07-12）
-- [ ] #2 サブタスク TASK-9.1 / TASK-9.2 / TASK-9.3 がすべて完了している
+- [x] #2 サブタスク TASK-9.1 / TASK-9.2 / TASK-9.3 がすべて完了している
 <!-- AC:END -->
-
-
 
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-07-12: 話者ラベルはユーザー確認のうえロケール追従（ja=話者A / en=Speaker A）に決定。実作業を TASK-9.1～9.3 に分割し、本タスクは親タスク化した。
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+P1-6 完了。全5画面のデザインが確定・成果物化された: RecordingView v4（既存）+ SessionList / SessionDetail（TASK-9.1）+ 話者プロファイル / 設定（TASK-9.3）のモック、および SwiftUI デザイントークン基盤（TASK-9.2: SokkiTokens 全17トークン・外観切替・ロケール追従 SpeakerLabel・共通コンポーネント・RenderPreview 検証済み）。話者ラベルはロケール追従（ja=話者A / en=Speaker A）に確定。既存画面へのトークン適用（再スタイリング）は今後の実装タスクで実施。
+<!-- SECTION:FINAL_SUMMARY:END -->
