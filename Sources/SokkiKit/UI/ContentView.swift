@@ -20,5 +20,6 @@ public struct ContentView: View {
         } detail: {
             RecordingView()
         }
+        .sokkiDesignSystem()
     }
 }

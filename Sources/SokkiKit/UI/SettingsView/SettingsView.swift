@@ -6,6 +6,7 @@ public struct SettingsView: View {
 
     @Query private var settingsArray: [AppSettingsModel]
     @Environment(\.modelContext) private var ctx
+    @AppStorage("sokki.appearance") private var appearance: SokkiAppearance = .system
 
     private var settings: AppSettingsModel {
         if let s = settingsArray.first { return s }
@@ -22,8 +23,24 @@ public struct SettingsView: View {
                 .tabItem { Label("話者分離", systemImage: "person.2") }
             llmTab
                 .tabItem { Label("LLM", systemImage: "brain") }
+            appearanceTab
+                .tabItem { Label("外観", systemImage: "paintpalette") }
         }
         .frame(width: 480, height: 320)
+    }
+
+    private var appearanceTab: some View {
+        Form {
+            Section("外観") {
+                Picker("テーマ", selection: $appearance) {
+                    ForEach(SokkiAppearance.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+        .padding()
     }
 
     private var transcriptionTab: some View {
