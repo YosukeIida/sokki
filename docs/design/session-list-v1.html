@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sokki — デザインモック: SessionListView v1</title>
+  <!--
+    トークン方針（docs/design/recording-view-v2.html からの流用）:
+      再利用（同名・同値のまま）:
+        ページ全体: --page-bg, --ink, --ink-muted, --ink-faint, --accent, --warn, --ok,
+                    --border, --card, --sys-ui, --sys-mono
+        モック共通: --page-bg2, --spk-a, --spk-b, --spk-c
+        テーマ別（.dir-console / .dir-manuscript 内）:
+          --content-bg, --titlebar, --sidebar, --transcript-bg, --controls-bg, --seg-bg,
+          --line, --text, --muted, --faint, --accent, --accent-on, --good, --rec,
+          --mic, --sys, --trans-rail
+        コンポーネント: .win / .titlebar / .lights / .win-title / .layout / .sidebar /
+          .side-h / .nav / .chip / .segment（v2 の Mic/System/Both セグメントと同じ見た目を
+          テーマ切替・ロケール切替・空状態切替の3トグルに転用）
+      新規トークンの追加: なし。
+        本画面で必要になった要素（行ホバー・話者チップ・空状態）はすべて上記の既存トークンと
+        color-mix() の組み合わせで表現できたため、新規カスタムプロパティは追加していない。
+      新規コンポーネントクラス（トークンではなく見た目のみ新規）:
+        .demo-controls, .session-rows, .session-row, .row-title, .row-meta, .mono,
+        .spk-chip, .chevron, .empty-state
+  -->
+  <style>
+    /* ========== Page shell（v2 と同一トークン） ========== */
+    :root {
+      --page-bg: #f5f4f0;
+      --ink: #1b1d21;
+      --ink-muted: #5a5f6a;
+      --ink-faint: #9aa0a8;
+      --accent: #2b4a78;
+      --warn: #c23b2c;
+      --ok: #3c7a50;
+      --border: #dddedd;
+      --card: #ffffff;
+      --sys-ui: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+      --sys-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--sys-ui);
+      background: var(--page-bg);
+      color: var(--ink);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page { max-width: 1040px; margin: 0 auto; padding: 60px 24px 120px; }
+
+    .header { margin-bottom: 40px; border-bottom: 1px solid var(--border); padding-bottom: 32px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; background: #e6ecf5; color: var(--accent); border: 1px solid #c9d6e8; padding: 4px 10px; border-radius: 5px; margin-bottom: 16px; }
+    h1 { font-size: clamp(26px, 5vw, 38px); line-height: 1.1; letter-spacing: -.025em; font-weight: 700; margin-bottom: 12px; }
+    .subtitle { font-size: 16px; color: var(--ink-muted); max-width: 72ch; margin-bottom: 20px; }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px; color: var(--ink-faint); }
+    .meta-row span b { color: var(--ink-muted); font-weight: 600; }
+
+    section { margin-bottom: 48px; }
+    h2 { font-size: 18px; font-weight: 680; letter-spacing: -.01em; margin-bottom: 4px; }
+    .section-sub { font-size: 14px; color: var(--ink-muted); margin-bottom: 18px; }
+
+    .callout { border-left: 3px solid var(--accent); background: #f0f4fa; padding: 14px 18px; border-radius: 0 8px 8px 0; font-size: 13.5px; color: var(--ink-muted); margin: 16px 0; }
+    .callout b { color: var(--ink); }
+    .callout ul { margin: 8px 0 0 18px; }
+    .callout li { margin-bottom: 4px; }
+
+    footer { border-top: 1px solid var(--border); padding-top: 24px; font-size: 13px; color: var(--ink-faint); }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ===================== モック共通トークン（v2 と同一） ===================== */
+    :root {
+      --page-bg2: #d9dce1;
+      --spk-a: #4c7fc0; --spk-b: #3e9d6a; --spk-c: #7c5cff;
+    }
+
+    .mock-wrap { overflow-x: auto; padding: 4px; }
+    .win { width: 880px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line);
+      background: var(--content-bg); box-shadow: 0 24px 60px -24px rgba(20,22,30,.45), 0 2px 8px rgba(0,0,0,.08);
+      font-family: var(--sys-ui); color: var(--text); }
+    .titlebar { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--titlebar); border-bottom: 1px solid var(--line); }
+    .lights { display: flex; gap: 8px; } .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+    .lights .r { background: #ff5f57; } .lights .y { background: #febc2e; } .lights .g { background: #28c840; }
+    .win-title { font-size: 13px; color: var(--muted); font-weight: 540; } .win-title b { color: var(--text); font-weight: 600; }
+    .layout { display: grid; grid-template-columns: 196px 1fr; min-height: 560px; }
+    .sidebar { background: var(--sidebar); border-right: 1px solid var(--line); padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; }
+    .side-h { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 6px 10px 4px; font-weight: 600; }
+    .nav { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 7px; font-size: 13.5px; color: var(--text); }
+    .nav .ic { width: 17px; text-align: center; opacity: .85; }
+    .nav.active { background: var(--accent); color: var(--accent-on); font-weight: 560; } .nav.active .ic { opacity: 1; }
+    .nav.dim { color: var(--muted); }
+
+    .content { display: flex; flex-direction: column; min-width: 0; }
+    .content-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .content-top-title { font-size: 13px; font-weight: 620; color: var(--text); }
+    .content-top-count { font-size: 12px; color: var(--faint); }
+
+    .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 560; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+
+    /* セグメントコントロール（v2 の Mic/System/Both と同じ見た目をトグルに転用） */
+    .segment { display: inline-flex; background: var(--seg-bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; }
+    .segment span { font-size: 12px; padding: 4px 11px; border-radius: 6px; color: var(--muted); font-weight: 520; cursor: pointer; user-select: none; }
+    .segment span:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .segment span.on { background: var(--accent); color: var(--accent-on); font-weight: 600; }
+
+    .mono { font-family: var(--sys-mono); font-variant-numeric: tabular-nums; }
+
+    /* ===================== セッション一覧 ===================== */
+    .session-rows { display: flex; flex-direction: column; }
+    .session-row { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
+    .session-row:last-child { border-bottom: none; }
+    .session-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+    .row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+    .row-title { font-size: 14.5px; font-weight: 620; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+    .row-meta .dur { color: var(--faint); }
+    .spk-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 540; padding: 3px 8px 3px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+    .spk-chip .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+    .chevron { font-size: 15px; color: var(--faint); flex: none; }
+
+    .empty-state { display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 60px 24px; text-align: center; }
+    .empty-state .glyph { font-size: 34px; color: var(--faint); margin-bottom: 4px; }
+    .empty-state .title { font-size: 15px; font-weight: 620; color: var(--text); }
+    .empty-state .desc { font-size: 13px; color: var(--muted); }
+
+    .win.show-empty .session-rows { display: none; }
+    .win.show-empty .empty-state { display: flex; }
+
+    /* ===================== テーマ（v2 と同一トークン値） ===================== */
+    .dir-console {
+      --content-bg: #1a1e24; --titlebar: #1e232a; --sidebar: #171b20; --transcript-bg: #16191e; --controls-bg: #171b20; --seg-bg: #13161b;
+      --line: #2a2f37; --text: #e3e6eb; --muted: #939ba7; --faint: #626a76;
+      --accent: #35a597; --accent-on: #042420; --good: #4fb48f; --rec: #d9534c;
+      --mic: #6e96c9; --sys: #c27c6e; --trans-rail: #2e7e74;
+    }
+    .dir-manuscript {
+      --content-bg: #fafaf8; --titlebar: #eeefec; --sidebar: #f1f2f0; --transcript-bg: #fbfbf9; --controls-bg: #f1f2f0; --seg-bg: #e9eae6;
+      --line: #e1e3df; --text: #21242b; --muted: #5e6571; --faint: #9aa0a6;
+      --accent: #2b4a78; --accent-on: #ffffff; --good: #3c7a50; --rec: #c23b2c;
+      --mic: #486593; --sys: #a06b50; --trans-rail: #c8d0dc;
+    }
+
+    /* ===================== プレビュー操作パネル ===================== */
+    .demo-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-bottom: 16px; padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+    .demo-controls .group { display: flex; align-items: center; gap: 8px; }
+    .demo-controls .group-label { font-size: 12px; color: var(--ink-faint); font-weight: 600; }
+    /* デモ操作パネル自体はページ本体トークンで塗る（ダークモック内蔵の .segment とは別スコープ） */
+    .demo-controls .segment { --seg-bg: #eef0ee; --line: #dddedd; --accent: #2b4a78; --accent-on: #fff; --muted: #5a5f6a; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ===== HEADER ===== -->
+  <header class="header">
+    <div class="badge">デザインモック · v1</div>
+    <h1>sokki — SessionListView</h1>
+    <p class="subtitle">
+      録音済みセッションの一覧画面のモックです。<a href="recording-view-v2.html">RecordingView v2</a> で確定した配色・書体トークンをそのまま流用し、Manuscript（ライト）/ Console（ダーク）の2テーマ、話者ラベルの ja/en 表示、空状態を1画面内でトグル切替できます。
+    </p>
+    <div class="meta-row">
+      <span><b>バージョン:</b> v1</span>
+      <span><b>対象画面:</b> SessionListView（録音一覧）</span>
+      <span><b>フェーズ:</b> Phase 1 MVP — backlog TASK-9.1 / Issue #58</span>
+      <span><b>プラットフォーム:</b> macOS 15+ / Apple Silicon</span>
+    </div>
+  </header>
+
+  <!-- ===== MOCKUP ===== -->
+  <section>
+    <h2>UI モック — SessionListView（インタラクティブ）</h2>
+    <p class="section-sub">下のトグルでテーマ・話者ラベルの言語・空状態を切り替えられます</p>
+
+    <div class="demo-controls">
+      <div class="group">
+        <span class="group-label">テーマ</span>
+        <div class="segment" data-group="theme">
+          <span class="on" data-value="manuscript" role="button" tabindex="0">☀️ Manuscript</span>
+          <span data-value="console" role="button" tabindex="0">🌙 Console</span>
+        </div>
+      </div>
+      <div class="group">
+        <span class="group-label">話者ラベル</span>
+        <div class="segment" data-group="locale">
+          <span class="on" data-value="ja" role="button" tabindex="0">日本語</span>
+          <span data-value="en" role="button" tabindex="0">English</span>
+        </div>
+      </div>
+      <div class="group">
+        <span class="group-label">表示状態</span>
+        <div class="segment" data-group="empty">
+          <span class="on" data-value="data" role="button" tabindex="0">6件の録音</span>
+          <span data-value="empty" role="button" tabindex="0">空状態</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mock-wrap">
+      <div class="win dir-manuscript" data-win>
+        <div class="titlebar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="win-title"><b>sokki</b> — 録音一覧</span></div>
+        <div class="layout">
+          <aside class="sidebar">
+            <div class="side-h">sokki</div>
+            <div class="nav"><span class="ic">●</span> 録音</div>
+            <div class="nav active"><span class="ic">≡</span> 録音一覧</div>
+            <div class="nav"><span class="ic">◑</span> 話者プロファイル</div>
+            <div style="flex:1"></div>
+            <div class="nav dim"><span class="ic">⚙</span> 設定</div>
+          </aside>
+          <main class="content">
+            <div class="content-top">
+              <span class="content-top-title">録音一覧</span>
+              <span class="content-top-count" data-count>6 件</span>
+            </div>
+            <div class="session-rows" data-rows></div>
+            <div class="empty-state">
+              <div class="glyph">〰️</div>
+              <div class="title">録音がありません</div>
+              <div class="desc">新しい録音を開始してください</div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== DESIGN NOTES ===== -->
+  <section>
+    <h2>デザイン上の判断メモ</h2>
+    <div class="callout">
+      <b>迷った点・意図的な変更点：</b>
+      <ul>
+        <li>録音長・日時は SwiftUI 実装（<code>SessionRowView</code>）では末尾配置だが、本モックでは行内の情報密度を優先し、タイトル直下のメタ行にまとめて配置。時刻表記の位置自体は仕様上の制約がないため据え置きで問題ないと判断。</li>
+        <li>録音モードアイコン（🎙 Mic / 🖥 System / 🎙🖥 Both）は絵文字のみで自己完結させ、外部アイコンフォント依存を避けた。実装では SF Symbols（mic / display / rectangle.2.swap 等）に置き換わる想定。</li>
+        <li>話者チップは3話者までを A=青（<code>--spk-a</code>）/ B=緑（<code>--spk-b</code>）/ C=紫（<code>--spk-c</code>）で固定し、v2 の話者色ポリシーをそのまま踏襲。4人以上のスケーリングは v2 同様オープンクエスチョンのまま。</li>
+        <li>空状態は実装中の <code>ContentUnavailableView("録音がありません", systemImage: "waveform", description: "新しい録音を開始してください")</code> の文言・情報量に忠実。CTA ボタンは追加していない（現行実装に合わせてスコープ外とした）。</li>
+        <li>新規 CSS カスタムプロパティは追加していない。行ホバーは <code>color-mix(in srgb, var(--text) 5%, transparent)</code> で既存トークンから合成。</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <p>sokki プロジェクト · <a href="recording-view-v2.html">RecordingView v2</a> · <a href="session-detail-v1.html">SessionDetailView v1</a> · <a href="../../spec.md">アーキテクチャ仕様（spec.md）</a> · <a href="../../requirements.md">要件定義（requirements.md）</a></p>
+    <p style="margin-top:8px;">このファイルは <code>docs/design/session-list-v1.html</code> に配置されています。ブラウザで直接開いてください。</p>
+  </footer>
+
+</div>
+
+<script>
+  const SESSIONS = [
+    { title: "週次進捗ミーティング", date: "7月10日 14:02", dur: "18:42", mode: "both",
+      speakers: [ { key: "a", ja: "話者A", en: "Speaker A" }, { key: "b", ja: "話者B", en: "Speaker B" } ] },
+    { title: "1on1 — 田中さん", date: "7月9日 11:00", dur: "24:15", mode: "mic",
+      speakers: [ { key: "a", ja: "話者A", en: "Speaker A" }, { key: "b", ja: "話者B", en: "Speaker B" } ] },
+    { title: "顧客インタビュー #3", date: "7月8日 16:30", dur: "32:10", mode: "system",
+      speakers: [ { key: "a", ja: "話者A", en: "Speaker A" }, { key: "b", ja: "話者B", en: "Speaker B" } ] },
+    { title: "採用面接 — フロントエンド", date: "7月7日 10:00", dur: "45:03", mode: "both",
+      speakers: [ { key: "a", ja: "話者A", en: "Speaker A" }, { key: "b", ja: "話者B", en: "Speaker B" }, { key: "c", ja: "話者C", en: "Speaker C" } ] },
+    { title: "朝会", date: "7月7日 09:00", dur: "4:12", mode: "mic",
+      speakers: [ { key: "a", ja: "話者A", en: "Speaker A" } ] },
+    { title: "海外パートナー打ち合わせ", date: "7月4日 19:00", dur: "27:55", mode: "both",
+      speakers: [ { key: "a", ja: "話者A", en: "Speaker A" }, { key: "b", ja: "話者B", en: "Speaker B" } ] },
+  ];
+  const MODE_LABEL = { mic: "🎙 Mic", system: "🖥 System", both: "🎙🖥 Both" };
+  const SPK_COLOR = { a: "var(--spk-a)", b: "var(--spk-b)", c: "var(--spk-c)" };
+
+  function rowHTML(s) {
+    const chips = s.speakers.map(sp =>
+      `<span class="spk-chip"><i class="dot" style="background:${SPK_COLOR[sp.key]}"></i><span data-ja="${sp.ja}" data-en="${sp.en}">${sp.ja}</span></span>`
+    ).join("");
+    return `
+      <div class="session-row">
+        <div class="row-main">
+          <div class="row-title">${s.title}</div>
+          <div class="row-meta">
+            <span>${s.date}</span>
+            <span class="dur mono">${s.dur}</span>
+            <span class="chip">${MODE_LABEL[s.mode]}</span>
+            ${chips}
+          </div>
+        </div>
+        <span class="chevron">›</span>
+      </div>`;
+  }
+  document.querySelectorAll("[data-rows]").forEach(el => {
+    el.innerHTML = SESSIONS.map(rowHTML).join("");
+  });
+
+  function applyLocale(locale) {
+    document.querySelectorAll("[data-ja][data-en]").forEach(el => {
+      el.textContent = locale === "en" ? el.dataset.en : el.dataset.ja;
+    });
+  }
+
+  document.querySelectorAll(".segment[data-group]").forEach(group => {
+    const spans = group.querySelectorAll("span");
+    const select = (sp) => {
+      spans.forEach(x => x.classList.remove("on"));
+      sp.classList.add("on");
+      const win = document.querySelector("[data-win]");
+      const value = sp.dataset.value;
+      switch (group.dataset.group) {
+        case "theme":
+          win.classList.remove("dir-manuscript", "dir-console");
+          win.classList.add(value === "console" ? "dir-console" : "dir-manuscript");
+          break;
+        case "locale":
+          applyLocale(value);
+          break;
+        case "empty":
+          win.classList.toggle("show-empty", value === "empty");
+          break;
+      }
+    };
+    spans.forEach(sp => {
+      sp.addEventListener("click", () => select(sp));
+      sp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(sp); }
+      });
+    });
+  });
+</script>
+
+</body>
+</html>
