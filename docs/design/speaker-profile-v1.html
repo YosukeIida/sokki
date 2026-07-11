@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sokki — デザインモック: SpeakerProfileView v1</title>
+  <!--
+    トークン方針（docs/design/recording-view-v2.html からの流用。session-list-v1.html /
+    session-detail-v1.html と同一方針）:
+      再利用（同名・同値のまま）:
+        ページ全体: --page-bg, --ink, --ink-muted, --ink-faint, --accent, --warn, --ok,
+                    --border, --card, --sys-ui, --sys-mono
+        モック共通: --page-bg2, --spk-a, --spk-b, --spk-c
+        テーマ別（.dir-console / .dir-manuscript 内）:
+          --content-bg, --titlebar, --sidebar, --transcript-bg, --controls-bg, --seg-bg,
+          --line, --text, --muted, --faint, --accent, --accent-on, --good, --rec,
+          --mic, --sys, --trans-rail
+        コンポーネント: .win / .titlebar / .lights / .win-title / .layout / .sidebar /
+          .side-h / .nav / .chip / .segment（テーマ・ロケール・表示状態トグルに転用）/
+          .empty-state（session-list-v1 と同じ「行リスト⇄空状態」切替パターン）
+      新規トークンの追加: なし。
+        話者プロファイルは録音1件あたり最大3人という RecordingView の制約と異なり、
+        画面全体でプロファイルが4人以上になり得る（v2 の「オープンクエスチョン5」＝
+        4話者以上のスケーリングは未決、に該当）。本モックでは暫定回答として、
+        4人目以降は既存の --spk-a/--spk-b/--spk-c を color-mix() で混色し、
+        新規カスタムプロパティを追加せずに区別可能な色を生成している
+        （JS の paletteColor() 参照）。
+      新規コンポーネントクラス（トークンではなく見た目のみ新規）:
+        .profile-rows, .profile-row, .profile-dot, .profile-name-wrap, .profile-name,
+        .placeholder, .profile-edit, .profile-input, .mini-btn, .profile-count,
+        .profile-lastseen, .profile-actions, .icon-btn, .rename-btn, .delete-btn
+  -->
+  <style>
+    /* ========== Page shell（v2 と同一トークン） ========== */
+    :root {
+      --page-bg: #f5f4f0;
+      --ink: #1b1d21;
+      --ink-muted: #5a5f6a;
+      --ink-faint: #9aa0a8;
+      --accent: #2b4a78;
+      --warn: #c23b2c;
+      --ok: #3c7a50;
+      --border: #dddedd;
+      --card: #ffffff;
+      --sys-ui: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+      --sys-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--sys-ui);
+      background: var(--page-bg);
+      color: var(--ink);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page { max-width: 1040px; margin: 0 auto; padding: 60px 24px 120px; }
+
+    .header { margin-bottom: 40px; border-bottom: 1px solid var(--border); padding-bottom: 32px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; background: #e6ecf5; color: var(--accent); border: 1px solid #c9d6e8; padding: 4px 10px; border-radius: 5px; margin-bottom: 16px; }
+    h1 { font-size: clamp(26px, 5vw, 38px); line-height: 1.1; letter-spacing: -.025em; font-weight: 700; margin-bottom: 12px; }
+    .subtitle { font-size: 16px; color: var(--ink-muted); max-width: 72ch; margin-bottom: 20px; }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px; color: var(--ink-faint); }
+    .meta-row span b { color: var(--ink-muted); font-weight: 600; }
+
+    section { margin-bottom: 48px; }
+    h2 { font-size: 18px; font-weight: 680; letter-spacing: -.01em; margin-bottom: 4px; }
+    .section-sub { font-size: 14px; color: var(--ink-muted); margin-bottom: 18px; }
+
+    .callout { border-left: 3px solid var(--accent); background: #f0f4fa; padding: 14px 18px; border-radius: 0 8px 8px 0; font-size: 13.5px; color: var(--ink-muted); margin: 16px 0; }
+    .callout b { color: var(--ink); }
+    .callout ul { margin: 8px 0 0 18px; }
+    .callout li { margin-bottom: 4px; }
+
+    footer { border-top: 1px solid var(--border); padding-top: 24px; font-size: 13px; color: var(--ink-faint); }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ===================== モック共通トークン（v2 と同一） ===================== */
+    :root {
+      --page-bg2: #d9dce1;
+      --spk-a: #4c7fc0; --spk-b: #3e9d6a; --spk-c: #7c5cff;
+    }
+
+    .mock-wrap { overflow-x: auto; padding: 4px; }
+    .win { width: 880px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line);
+      background: var(--content-bg); box-shadow: 0 24px 60px -24px rgba(20,22,30,.45), 0 2px 8px rgba(0,0,0,.08);
+      font-family: var(--sys-ui); color: var(--text); }
+    .titlebar { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--titlebar); border-bottom: 1px solid var(--line); }
+    .lights { display: flex; gap: 8px; } .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+    .lights .r { background: #ff5f57; } .lights .y { background: #febc2e; } .lights .g { background: #28c840; }
+    .win-title { font-size: 13px; color: var(--muted); font-weight: 540; } .win-title b { color: var(--text); font-weight: 600; }
+    .layout { display: grid; grid-template-columns: 196px 1fr; min-height: 560px; }
+    .sidebar { background: var(--sidebar); border-right: 1px solid var(--line); padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; }
+    .side-h { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 6px 10px 4px; font-weight: 600; }
+    .nav { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 7px; font-size: 13.5px; color: var(--text); }
+    .nav .ic { width: 17px; text-align: center; opacity: .85; }
+    .nav.active { background: var(--accent); color: var(--accent-on); font-weight: 560; } .nav.active .ic { opacity: 1; }
+    .nav.dim { color: var(--muted); }
+
+    .content { display: flex; flex-direction: column; min-width: 0; }
+    .content-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .content-top-title { font-size: 13px; font-weight: 620; color: var(--text); }
+    .content-top-count { font-size: 12px; color: var(--faint); }
+
+    .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 560; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+
+    /* セグメントコントロール（v2 の Mic/System/Both と同じ見た目をトグルに転用） */
+    .segment { display: inline-flex; background: var(--seg-bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; }
+    .segment span { font-size: 12px; padding: 4px 11px; border-radius: 6px; color: var(--muted); font-weight: 520; cursor: pointer; user-select: none; }
+    .segment span:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .segment span.on { background: var(--accent); color: var(--accent-on); font-weight: 600; }
+
+    .mono { font-family: var(--sys-mono); font-variant-numeric: tabular-nums; }
+
+    /* ===================== 話者プロファイル一覧 ===================== */
+    .profile-rows { display: flex; flex-direction: column; }
+    .profile-row { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+    .profile-row:last-child { border-bottom: none; }
+    .profile-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+    .profile-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+
+    .profile-name-wrap { flex: 1; min-width: 0; display: flex; align-items: center; }
+    .profile-display { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .profile-name { font-size: 14px; font-weight: 610; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .profile-name.placeholder { font-weight: 520; color: var(--faint); }
+    .row-editing .profile-display { display: none; }
+
+    .profile-edit { display: none; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+    .row-editing .profile-edit { display: flex; }
+    .profile-input { flex: 1; min-width: 0; font-family: var(--sys-ui); font-size: 13.5px; color: var(--text); background: var(--controls-bg); border: 1px solid var(--accent); border-radius: 6px; padding: 5px 9px; }
+    .profile-input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
+    .mini-btn { flex: none; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line); background: var(--controls-bg); font-size: 12px; cursor: pointer; display: grid; place-items: center; }
+    .mini-btn.save { color: var(--good); }
+    .mini-btn.save:hover { background: color-mix(in srgb, var(--good) 16%, transparent); }
+    .mini-btn.cancel { color: var(--muted); }
+    .mini-btn.cancel:hover { background: color-mix(in srgb, var(--muted) 16%, transparent); }
+
+    .profile-count { flex: none; width: 88px; font-size: 12.5px; color: var(--muted); }
+    .profile-lastseen { flex: none; width: 122px; font-size: 12.5px; color: var(--muted); }
+
+    .profile-actions { flex: none; display: flex; gap: 6px; }
+    .row-editing .profile-actions { visibility: hidden; }
+    .icon-btn { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line); background: transparent; font-size: 12.5px; cursor: pointer; display: grid; place-items: center; color: var(--muted); }
+    .rename-btn:hover { color: var(--accent-on); background: var(--accent); border-color: var(--accent); }
+    .delete-btn:hover { color: var(--accent-on); background: var(--rec); border-color: var(--rec); }
+
+    .empty-state { display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 60px 24px; text-align: center; }
+    .empty-state .glyph { font-size: 34px; color: var(--faint); margin-bottom: 4px; }
+    .empty-state .title { font-size: 15px; font-weight: 620; color: var(--text); }
+    .empty-state .desc { font-size: 13px; color: var(--muted); }
+
+    .win.show-empty .profile-rows { display: none; }
+    .win.show-empty .empty-state { display: flex; }
+    .win.show-empty [data-count] { visibility: hidden; }
+
+    /* ===================== テーマ（v2 と同一トークン値） ===================== */
+    .dir-console {
+      --content-bg: #1a1e24; --titlebar: #1e232a; --sidebar: #171b20; --transcript-bg: #16191e; --controls-bg: #171b20; --seg-bg: #13161b;
+      --line: #2a2f37; --text: #e3e6eb; --muted: #939ba7; --faint: #626a76;
+      --accent: #35a597; --accent-on: #042420; --good: #4fb48f; --rec: #d9534c;
+      --mic: #6e96c9; --sys: #c27c6e; --trans-rail: #2e7e74;
+    }
+    .dir-manuscript {
+      --content-bg: #fafaf8; --titlebar: #eeefec; --sidebar: #f1f2f0; --transcript-bg: #fbfbf9; --controls-bg: #f1f2f0; --seg-bg: #e9eae6;
+      --line: #e1e3df; --text: #21242b; --muted: #5e6571; --faint: #9aa0a6;
+      --accent: #2b4a78; --accent-on: #ffffff; --good: #3c7a50; --rec: #c23b2c;
+      --mic: #486593; --sys: #a06b50; --trans-rail: #c8d0dc;
+    }
+
+    /* ===================== プレビュー操作パネル ===================== */
+    .demo-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-bottom: 16px; padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+    .demo-controls .group { display: flex; align-items: center; gap: 8px; }
+    .demo-controls .group-label { font-size: 12px; color: var(--ink-faint); font-weight: 600; }
+    .demo-controls .segment { --seg-bg: #eef0ee; --line: #dddedd; --accent: #2b4a78; --accent-on: #fff; --muted: #5a5f6a; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ===== HEADER ===== -->
+  <header class="header">
+    <div class="badge">デザインモック · v1</div>
+    <h1>sokki — SpeakerProfileView</h1>
+    <p class="subtitle">
+      話者プロファイル一覧画面のモックです。<a href="recording-view-v2.html">RecordingView v2</a> のトークンを流用し、登録済み話者（実名リネーム済み）と未登録話者（話者A形式）を混在させた一覧・インライン名前変更・削除・空状態を1画面内でトグル切替できます。
+    </p>
+    <div class="meta-row">
+      <span><b>バージョン:</b> v1</span>
+      <span><b>対象画面:</b> SpeakerProfileView（話者プロファイル）</span>
+      <span><b>フェーズ:</b> Phase 1 MVP — backlog TASK-9.3 / Issue #60</span>
+      <span><b>プラットフォーム:</b> macOS 15+ / Apple Silicon</span>
+    </div>
+  </header>
+
+  <!-- ===== MOCKUP ===== -->
+  <section>
+    <h2>UI モック — SpeakerProfileView（インタラクティブ）</h2>
+    <p class="section-sub">下のトグルでテーマ・話者ラベルの言語・表示状態を切り替えられます。各行の ✎ をクリックすると名前をインライン編集できます（保存すると未登録バッジが外れ、実名として扱われます）。</p>
+
+    <div class="demo-controls">
+      <div class="group">
+        <span class="group-label">テーマ</span>
+        <div class="segment" data-group="theme">
+          <span class="on" data-value="manuscript" role="button" tabindex="0">☀️ Manuscript</span>
+          <span data-value="console" role="button" tabindex="0">🌙 Console</span>
+        </div>
+      </div>
+      <div class="group">
+        <span class="group-label">話者ラベル</span>
+        <div class="segment" data-group="locale">
+          <span class="on" data-value="ja" role="button" tabindex="0">日本語</span>
+          <span data-value="en" role="button" tabindex="0">English</span>
+        </div>
+      </div>
+      <div class="group">
+        <span class="group-label">表示状態</span>
+        <div class="segment" data-group="empty">
+          <span class="on" data-value="data" role="button" tabindex="0">6件のプロファイル</span>
+          <span data-value="empty" role="button" tabindex="0">空状態</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mock-wrap">
+      <div class="win dir-manuscript" data-win>
+        <div class="titlebar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="win-title"><b>sokki</b> — 話者プロファイル</span></div>
+        <div class="layout">
+          <aside class="sidebar">
+            <div class="side-h">sokki</div>
+            <div class="nav"><span class="ic">●</span> 録音</div>
+            <div class="nav"><span class="ic">≡</span> 録音一覧</div>
+            <div class="nav active"><span class="ic">◑</span> 話者プロファイル</div>
+            <div style="flex:1"></div>
+            <div class="nav dim"><span class="ic">⚙</span> 設定</div>
+          </aside>
+          <main class="content">
+            <div class="content-top">
+              <span class="content-top-title">話者プロファイル</span>
+              <span class="content-top-count" data-count>6 件</span>
+            </div>
+            <div class="profile-rows" data-rows></div>
+            <div class="empty-state">
+              <div class="glyph">👥</div>
+              <div class="title">プロファイルなし</div>
+              <div class="desc">話者分離を実行すると自動的に追加されます</div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== DESIGN NOTES ===== -->
+  <section>
+    <h2>デザイン上の判断メモ</h2>
+    <div class="callout">
+      <b>迷った点・意図的な変更点：</b>
+      <ul>
+        <li><b>4人目以降の話者色：</b>RecordingView は1セッション最大3話者（<code>--spk-a/b/c</code>）を前提にしているが、プロファイルはアプリ全体で蓄積されるため4人以上になり得る。v2 の「オープンクエスチョン5」（4話者以上のスケーリングは未決）への暫定回答として、4人目以降は既存3色を <code>color-mix()</code> で混色し新規カスタムプロパティなしで区別可能な色を生成した（<code>paletteColor()</code>）。正式な色相設計は Phase 2 以降で再検討が必要。</li>
+        <li><b>登録済み/未登録の混在：</b>実装（<code>SpeakerProfileStore.findOrCreate</code>）の自動命名は現状「話者 1」のような連番だが、確定仕様（ja=話者A / en=Speaker A）に合わせてモックでは A/B/C… 形式で表示。実名にリネーム済みの話者（田中 太郎・佐藤 花子・Alex Kim）は未登録バッジを付けず、ロケール切替の対象外とした（実名は翻訳されないため）。</li>
+        <li><b>リネームは実際に機能させた：</b>✎ をクリックするとインライン入力に切り替わり、保存すると表示名が更新されて「未登録」バッジが外れる（<code>SpeakerProfileStore.rename</code> のユーザー体験をそのまま再現）。一方 🗑（削除）は見た目のみで実際には行を消さない — 現行 UI にまだ削除導線が無く（<code>deleteProfile</code> はストア層に実装済みだが未接続）、確認ダイアログの要否など削除フローの設計は backlog TASK-30（Phase 3 / Issue #49「SpeakerProfileView UI（名前編集・声紋削除）」）の検討事項として残すため。</li>
+        <li><b>空状態の文言：</b>現行実装（<code>SpeakerProfileView.swift</code> の <code>ContentUnavailableView</code>）の文言「プロファイルなし」「話者分離を実行すると自動的に追加されます」にそのまま準拠。</li>
+        <li>session-list-v1 からの小さな改善として、空状態トグル時にヘッダーの件数表示（「6 件」）も併せて隠すようにした（<code>.win.show-empty [data-count]</code>）。session-list-v1 自体は変更していない。</li>
+        <li>新規 CSS カスタムプロパティは追加していない（4人目以降の色は既存トークンの color-mix 合成）。</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <p>sokki プロジェクト · <a href="recording-view-v2.html">RecordingView v2</a> · <a href="session-list-v1.html">SessionListView v1</a> · <a href="session-detail-v1.html">SessionDetailView v1</a> · <a href="settings-v1.html">SettingsView v1</a> · <a href="../../spec.md">アーキテクチャ仕様（spec.md）</a> · <a href="../../requirements.md">要件定義（requirements.md）</a></p>
+    <p style="margin-top:8px;">このファイルは <code>docs/design/speaker-profile-v1.html</code> に配置されています。ブラウザで直接開いてください。</p>
+  </footer>
+
+</div>
+
+<script>
+  const PROFILES = [
+    { name: "田中 太郎", registered: true, count: 14, lastSeen: "7月10日" },
+    { name: "話者B", en: "Speaker B", registered: false, count: 6, lastSeen: "7月9日" },
+    { name: "佐藤 花子", registered: true, count: 9, lastSeen: "7月8日" },
+    { name: "話者D", en: "Speaker D", registered: false, count: 3, lastSeen: "7月2日" },
+    { name: "Alex Kim", registered: true, count: 2, lastSeen: "6月30日" },
+    { name: "話者F", en: "Speaker F", registered: false, count: 1, lastSeen: "6月28日" },
+  ];
+
+  // 4人目以降（index >= 3）は既存3色を color-mix() で混色して生成（新規トークン追加なし）
+  function paletteColor(i) {
+    const base = ["var(--spk-a)", "var(--spk-b)", "var(--spk-c)"];
+    if (i < base.length) return base[i];
+    const mixPairs = [
+      ["var(--spk-a)", "var(--spk-c)"],
+      ["var(--spk-b)", "var(--spk-a)"],
+      ["var(--spk-c)", "var(--spk-b)"],
+    ];
+    const [c1, c2] = mixPairs[(i - base.length) % mixPairs.length];
+    return `color-mix(in srgb, ${c1} 55%, ${c2} 45%)`;
+  }
+
+  function rowHTML(p, i) {
+    const color = paletteColor(i);
+    const nameInner = p.registered
+      ? `<span class="profile-name">${p.name}</span>`
+      : `<span class="profile-name placeholder" data-ja="${p.name}" data-en="${p.en}">${p.name}</span><span class="chip" data-ja="未登録" data-en="Unregistered">未登録</span>`;
+    return `
+      <div class="profile-row" data-row data-registered="${p.registered}">
+        <span class="profile-dot" style="background:${color}"></span>
+        <div class="profile-name-wrap">
+          <span class="profile-display" data-display>${nameInner}</span>
+          <span class="profile-edit" data-edit>
+            <input class="profile-input" data-input type="text" value="${p.name}">
+            <button class="mini-btn save" data-save title="保存">✓</button>
+            <button class="mini-btn cancel" data-cancel title="キャンセル">✕</button>
+          </span>
+        </div>
+        <span class="profile-count mono">${p.count} セッション</span>
+        <span class="profile-lastseen">最終出現 ${p.lastSeen}</span>
+        <div class="profile-actions">
+          <button class="icon-btn rename-btn" data-rename title="名前を変更">✎</button>
+          <button class="icon-btn delete-btn" data-delete title="削除">🗑</button>
+        </div>
+      </div>`;
+  }
+
+  document.querySelectorAll("[data-rows]").forEach(el => {
+    el.innerHTML = PROFILES.map(rowHTML).join("");
+  });
+
+  // インライン編集の配線（保存すると未登録バッジが外れ実名扱いになる）
+  document.querySelectorAll("[data-row]").forEach(row => {
+    const renameBtn = row.querySelector("[data-rename]");
+    const saveBtn = row.querySelector("[data-save]");
+    const cancelBtn = row.querySelector("[data-cancel]");
+    const input = row.querySelector("[data-input]");
+    const display = row.querySelector("[data-display]");
+
+    renameBtn.addEventListener("click", () => {
+      row.classList.add("row-editing");
+      input.value = display.textContent.trim();
+      input.focus();
+      input.select();
+    });
+    cancelBtn.addEventListener("click", () => {
+      row.classList.remove("row-editing");
+    });
+    saveBtn.addEventListener("click", () => {
+      const value = input.value.trim();
+      if (value) {
+        display.innerHTML = `<span class="profile-name">${value}</span>`;
+        row.dataset.registered = "true";
+      }
+      row.classList.remove("row-editing");
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); saveBtn.click(); }
+      if (e.key === "Escape") { e.preventDefault(); cancelBtn.click(); }
+    });
+  });
+
+  function applyLocale(locale) {
+    document.querySelectorAll("[data-ja][data-en]").forEach(el => {
+      el.textContent = locale === "en" ? el.dataset.en : el.dataset.ja;
+    });
+  }
+
+  document.querySelectorAll(".segment[data-group]").forEach(group => {
+    const spans = group.querySelectorAll("span");
+    const select = (sp) => {
+      spans.forEach(x => x.classList.remove("on"));
+      sp.classList.add("on");
+      const win = document.querySelector("[data-win]");
+      const value = sp.dataset.value;
+      switch (group.dataset.group) {
+        case "theme":
+          win.classList.remove("dir-manuscript", "dir-console");
+          win.classList.add(value === "console" ? "dir-console" : "dir-manuscript");
+          break;
+        case "locale":
+          applyLocale(value);
+          break;
+        case "empty":
+          win.classList.toggle("show-empty", value === "empty");
+          break;
+      }
+    };
+    spans.forEach(sp => {
+      sp.addEventListener("click", () => select(sp));
+      sp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(sp); }
+      });
+    });
+  });
+</script>
+
+</body>
+</html>
