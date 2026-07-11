@@ -1,10 +1,10 @@
 ---
 id: TASK-39
 title: sokki アプリ Info.plist にマイク/音声認識の使用説明が無く録音時クラッシュの恐れ
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-11 19:02'
-updated_date: '2026-07-11 19:03'
+updated_date: '2026-07-11 20:40'
 labels:
   - Phase1
   - bug
@@ -14,6 +14,9 @@ references:
   - project.yml
   - docs/handover.md
   - 'https://github.com/YosukeIida/sokki/issues/62'
+modified_files:
+  - project.yml
+  - Info.plist
 priority: high
 ordinal: 42000
 ---
@@ -32,11 +35,23 @@ ordinal: 42000
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 project.yml の sokki ターゲット info.properties に NSMicrophoneUsageDescription と NSSpeechRecognitionUsageDescription が追加されている
-- [ ] #2 xcodegen generate 後のビルド成果物 sokki.app/Contents/Info.plist に両キーが存在する（plutil で確認）
+- [x] #1 project.yml の sokki ターゲット info.properties に NSMicrophoneUsageDescription と NSSpeechRecognitionUsageDescription が追加されている
+- [x] #2 xcodegen generate 後のビルド成果物 sokki.app/Contents/Info.plist に両キーが存在する（plutil で確認）
 - [ ] #3 実機で録音を開始してもクラッシュせず、マイク許可ダイアログが出る
-- [ ] #4 entitlements の 4 権限が引き続き保持されている
+- [x] #4 entitlements の 4 権限が引き続き保持されている
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+修正後、Xcode MCP の BuildProject はキャッシュされた旧 Info.plist（6/26付）を使い回す増分ビルドをしてしまい、一見成功したように見えて実は反映されていなかった。`xcodebuild clean build` で強制リビルドして修正を確認。以後 project.yml 変更後は xcodegen generate のみでなく、Xcode でのクリーンビルドも検討するべき（リソース変更がビルドシステムに拾い切れないことがある）。
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+project.yml の sokki ターゲット info に properties（NSMicrophoneUsageDescription / NSSpeechRecognitionUsageDescription）を追加。xcodegen generate → xcodebuild clean build で再ビルドし、生成された sokki.app/Contents/Info.plist に両キーが存在すること、entitlements 4権限も保持されていることを確認済み。AC#3（実機録音でクラッシュしない）はユーザーの手動確認待ち。
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

@@ -55,6 +55,9 @@ targets:
       - Sources/sokki
     info:
       path: Info.plist
+      properties:
+        NSMicrophoneUsageDescription: "録音した音声を文字起こしするためにマイクを使用します。"
+        NSSpeechRecognitionUsageDescription: "録音した音声を文字起こしするために音声認識を使用します。"
     entitlements:
       path: sokki.entitlements
       properties:
