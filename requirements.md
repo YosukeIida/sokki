@@ -148,7 +148,7 @@ SpeakerProfileModel
 - **NFR-2** Apple Silicon (M1 以降) で快適に動作すること
 - **NFR-3** バックグラウンド推論は ANE (Apple Neural Engine) にオフロードすること
 - **NFR-4** macOS 15 (Sequoia) 以降を対象とすること
-- **NFR-5** GitHub + Homebrew Cask で配布できること（コード署名なしでも動作可能な形）
+- **NFR-5** GitHub Releases で dmg 配布できること。初期は無署名（Gatekeeper 回避手順を案内）。Developer ID Program 取得後は Developer ID 署名 + 公証に移行し、Homebrew Cask 配布（TASK-37）も検討する（TASK-10 決定・2026-07-13）
 - **NFR-6** Xcode + Swift Package Manager で管理できること
 
 ---
@@ -314,8 +314,9 @@ UI デザインは `claude.ai/design` で先行作成し、Claude Code ハンド
 - [x] ~~アプリ名~~ → **sokki**（速記）
 - [x] ~~ビルドシステム~~ → xcodegen + SPM（xcodeproj 生成済み）
 - [ ] claude.ai/design でのデザインシステム設定
-- [ ] Homebrew Cask リポジトリの管理方法（個人 tap vs 公式）
-- [ ] コード署名なし配布時の Gatekeeper 回避方法のドキュメント化
+- [x] ~~配布方針~~ → 初期は無署名 dmg 配布、Developer ID 取得後に署名+公証へ移行（TASK-10、2026-07-13）
+- [ ] Homebrew Cask リポジトリの管理方法（個人 tap vs 公式）※ Developer ID 取得後に着手
+- [ ] コード署名なし配布時の Gatekeeper 回避方法のドキュメント化（当面必要・優先度高）
 - [ ] 話者分離の日本語 DER 実測（参考: Pyannote OSS community-1=28.8% / Sortformer v2=12.7% / DiariZen=15.6%、arXiv 2509.26177）
 - [ ] SpeakerKit v1.0 で embedding 取り出し API が公開されているかの確認（未公開なら FluidAudio `extractEmbedding()` を採用）
 - [ ] リアルタイム文字起こし時のバッファリング戦略（チャンクサイズ）

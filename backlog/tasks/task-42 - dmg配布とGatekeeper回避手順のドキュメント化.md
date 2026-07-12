@@ -1,0 +1,40 @@
+---
+id: TASK-42
+title: dmg配布とGatekeeper回避手順のドキュメント化
+status: To Do
+assignee: []
+created_date: '2026-07-12 19:01'
+updated_date: '2026-07-12 19:02'
+labels:
+  - Phase2
+  - infra
+milestone: m-1
+dependencies:
+  - TASK-10
+references:
+  - 'https://github.com/YosukeIida/sokki/issues/65'
+priority: medium
+ordinal: 45000
+---
+
+## Description
+
+<!-- SECTION:DESCRIPTION:BEGIN -->
+TASK-10の決定（初期は無署名 dmg 配布、Developer ID 取得後に署名+公証へ移行）を実行に移す。GitHub Releases 経由で dmg 形式の配布物を作成できるようにし、無署名アプリのため発生する Gatekeeper 警告への対処手順を利用者向けにドキュメント化する。
+
+Homebrew Cask 配布（TASK-37）は Developer ID 取得後の話として据え置き、当面はこの dmg 配布のみで運用する。
+<!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 GitHub Releases から sokki.app を含む dmg をダウンロード・配布できる状態にする（ビルド→dmg作成手順を整備）
+- [ ] #2 無署名アプリ実行時の Gatekeeper 警告と回避手順（システム設定からの許可 or xattr -d com.apple.quarantine 等）を README ないし配布ドキュメントに記載する
+<!-- AC:END -->
+
+## Definition of Done
+<!-- DOD:BEGIN -->
+- [ ] #1 swift build が通る
+- [ ] #2 swift test で本変更起因の失敗がない（既知の Snapshot 失敗 4 件は除外可）
+- [ ] #3 project.yml 変更時は xcodegen generate を実行し entitlements の 3 権限（audio-input / screen-capture / network.client）が保持されていることを確認する
+- [ ] #4 対応する GitHub Issue がある場合は完了時に gh issue close でクローズして backlog と同期する
+<!-- DOD:END -->
