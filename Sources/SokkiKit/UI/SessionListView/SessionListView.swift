@@ -6,7 +6,7 @@ struct SessionListView: View {
     private var sessions: [SessionModel]
 
     @State private var selectedSession: SessionModel?
-    @Environment(\.modelContext) private var modelContext
+    @Environment(AppDependencyContainer.self) private var deps
 
     var body: some View {
         List(sessions, selection: $selectedSession) { session in
@@ -42,11 +42,12 @@ struct SessionListView: View {
 
     private func deleteSelected() {
         guard let session = selectedSession else { return }
-        if let audioFileURL = session.audioFileURL {
-            try? FileManager.default.removeItem(at: audioFileURL)
-        }
-        modelContext.delete(session)
-        try? modelContext.save()
+        // 削除は SessionManager.deleteSession に一元化する。録音ファイル（Both モードは
+        // primary + `_system` 派生の 2 ファイル）と SwiftData レコードをまとめて削除する。
+        let sessionID = session.id
         selectedSession = nil
+        Task {
+            try? await deps.sessionManager.deleteSession(sessionID)
+        }
     }
 }
