@@ -7,7 +7,7 @@ struct FluidAudioEngineTests {
     @Test("DiarizationEngine protocol として交換できる")
     func conformsToProtocol() {
         let engine: any DiarizationEngine = FluidAudioEngine(manager: MockFluidAudioManager())
-        #expect(engine is FluidAudioEngine)
+        _ = engine
     }
 
     @Test("prepare 前の diarize は notPrepared")
@@ -34,7 +34,8 @@ struct FluidAudioEngineTests {
             try await engine.prepare()
             Issue.record("prepare should throw")
         } catch case DiarizationEngineError.modelLoadFailed {
-            #expect(await engine.isReady == false)
+            let isReady = await engine.isReady
+            #expect(isReady == false)
         } catch {
             Issue.record("unexpected error: \(error)")
         }
