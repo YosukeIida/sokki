@@ -6,6 +6,7 @@ public struct SettingsView: View {
 
     @Query private var settingsArray: [AppSettingsModel]
     @Environment(\.modelContext) private var ctx
+    @Environment(AppDependencyContainer.self) private var deps
     @AppStorage("sokki.appearance") private var appearance: SokkiAppearance = .system
 
     private var settings: AppSettingsModel {
@@ -15,18 +16,28 @@ public struct SettingsView: View {
         return s
     }
 
+    private var translationSnapshot: TranslationSettingsSnapshot {
+        TranslationSettingsSnapshot(settings)
+    }
+
     public var body: some View {
         TabView {
             transcriptionTab
                 .tabItem { Label("文字起こし", systemImage: "waveform") }
             speakerTab
                 .tabItem { Label("話者分離", systemImage: "person.2") }
+            translationTab
+                .tabItem { Label("翻訳", systemImage: "character.bubble") }
             llmTab
                 .tabItem { Label("LLM", systemImage: "brain") }
             appearanceTab
                 .tabItem { Label("外観", systemImage: "paintpalette") }
         }
         .frame(width: 480, height: 320)
+        // 翻訳設定が変わるたびに Coordinator を再評価する（fail-closed に乗る）。
+        .onChange(of: translationSnapshot) { _, snapshot in
+            Task { await deps.reconcileTranslation(snapshot) }
+        }
     }
 
     private var appearanceTab: some View {
@@ -92,6 +103,71 @@ public struct SettingsView: View {
             }
         }
         .padding()
+    }
+
+    private var translationTab: some View {
+        Form {
+            Section("翻訳") {
+                Toggle("翻訳を有効にする", isOn: Binding(
+                    get: { settings.translationEnabled },
+                    set: { settings.translationEnabled = $0 }
+                ))
+                Picker("プロバイダ", selection: Binding(
+                    get: { TranslationProviderKind(rawValue: settings.translationProvider) ?? .auto },
+                    set: { settings.translationProvider = $0.rawValue }
+                )) {
+                    Text("自動").tag(TranslationProviderKind.auto)
+                    Text("Apple（オンデバイス）").tag(TranslationProviderKind.apple)
+                    Text("DeepL（BYO・要キー）").tag(TranslationProviderKind.deepL)
+                    Text("Gemini Live（BYO・実験的）").tag(TranslationProviderKind.geminiLive)
+                }
+                .disabled(!settings.translationEnabled)
+                Picker("対象言語", selection: Binding(
+                    get: { settings.translationTargetLanguage },
+                    set: { settings.translationTargetLanguage = $0 }
+                )) {
+                    Text("English").tag("en")
+                    Text("日本語").tag("ja")
+                    Text("中国語（簡体字）").tag("zh-Hans")
+                    Text("韓国語").tag("ko")
+                    Text("スペイン語").tag("es")
+                    Text("フランス語").tag("fr")
+                }
+                .disabled(!settings.translationEnabled)
+
+                if let warning = byoWarning {
+                    Label(warning, systemImage: "cloud.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Section("プライバシー") {
+                Toggle("プライバシーモード", isOn: Binding(
+                    get: { settings.privacyModeEnabled },
+                    set: { settings.privacyModeEnabled = $0 }
+                ))
+                Text("ON の場合、オンデバイス翻訳（Apple）が対応していない言語ペアでもクラウドへ自動フォールバックしません。BYO プロバイダを明示的に選択した場合のみクラウド送信を許可します。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+    }
+
+    /// BYO プロバイダを明示選択している場合の注意書き。
+    private var byoWarning: String? {
+        let kind = TranslationProviderKind(rawValue: settings.translationProvider) ?? .auto
+        guard settings.translationEnabled, kind.isOnDeviceImplied == false, kind != .auto else { return nil }
+        return "\(byoDisplayName(kind)) は API キーが必要で、音声のテキストがクラウドへ送信されます。"
+    }
+
+    private func byoDisplayName(_ kind: TranslationProviderKind) -> String {
+        switch kind {
+        case .deepL: return "DeepL"
+        case .geminiLive: return "Gemini Live"
+        case .googleCloudV3: return "Google Cloud Translation"
+        case .apple, .auto: return kind.rawValue
+        }
     }
 
     private var llmTab: some View {

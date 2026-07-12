@@ -1,16 +1,34 @@
 import SwiftUI
+import SwiftData
 
 struct RecordingView: View {
     @State private var captureMode: AudioCaptureManager.CaptureMode = .micOnly
     @State private var errorMessage: String? = nil
     @Environment(AppDependencyContainer.self) private var deps
+    @Query private var settingsArray: [AppSettingsModel]
+    @Environment(\.modelContext) private var modelContext
     private var pipeline: TranscriptionPipeline { deps.pipeline }
+
+    private var settings: AppSettingsModel {
+        if let s = settingsArray.first { return s }
+        let s = AppSettingsModel()
+        modelContext.insert(s)
+        return s
+    }
+
+    private var translationSnapshot: TranslationSettingsSnapshot {
+        TranslationSettingsSnapshot(settings)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             captureModeSelector
                 .padding(.horizontal)
                 .padding(.top, 12)
+
+            translationToggleBar
+                .padding(.horizontal)
+                .padding(.top, 8)
 
             Divider()
                 .padding(.top, 8)
@@ -37,6 +55,31 @@ struct RecordingView: View {
 
             controlBar
                 .padding()
+        }
+        // 翻訳設定が変わるたびに Coordinator を再評価する（録音中の ON/OFF 切替も含む）。
+        .onChange(of: translationSnapshot) { _, snapshot in
+            Task { await deps.reconcileTranslation(snapshot) }
+        }
+    }
+
+    /// 録音中でも切り替えられる翻訳 ON/OFF の軽量トグル。詳細設定（プロバイダ/言語）は
+    /// SettingsView に置く。
+    ///
+    /// macOS の `.switch` スタイル Toggle は Form/List 外では title を視覚表示しないため、
+    /// 独立した Text をラベルとして添える（`.labelsHidden()` で Toggle 側の重複表示を抑止）。
+    private var translationToggleBar: some View {
+        HStack(spacing: 6) {
+            Text("翻訳")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Toggle("翻訳", isOn: Binding(
+                get: { settings.translationEnabled },
+                set: { settings.translationEnabled = $0 }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .accessibilityIdentifier("translationToggle")
         }
     }
 
@@ -180,24 +223,28 @@ struct RecordingView: View {
 #Preview("アイドル") {
     RecordingView()
         .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.idle()))
+        .modelContainer(for: AppSettingsModel.self, inMemory: true)
         .frame(width: 600, height: 500)
 }
 
 #Preview("ローディング中（ダウンロード進捗あり）") {
     RecordingView()
         .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.loading()))
+        .modelContainer(for: AppSettingsModel.self, inMemory: true)
         .frame(width: 600, height: 500)
 }
 
 #Preview("ローディング中（メモリロード・進捗なし）") {
     RecordingView()
         .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.loadingIntoMemory()))
+        .modelContainer(for: AppSettingsModel.self, inMemory: true)
         .frame(width: 600, height: 500)
 }
 
 #Preview("録音中（テキストあり）") {
     RecordingView()
         .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.recordingWithText()))
+        .modelContainer(for: AppSettingsModel.self, inMemory: true)
         .frame(width: 600, height: 500)
 }
 #endif
