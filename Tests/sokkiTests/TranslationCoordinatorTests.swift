@@ -235,4 +235,36 @@ struct TranslationCoordinatorTests {
         let tears = await blocking.teardownCallCount
         #expect(tears >= 1)                                // 作りかけ provider は teardown される
     }
+
+    // 残-2 回帰: prepare 停止中に所有者が明示 teardown() を呼ぶと、prepare 復帰後も
+    // provider は active 化しない（teardown() が世代を進めて進行中 reconcile を無効化）。
+    @Test("prepare 中に所有者が teardown() を呼ぶと復帰後も active にならない")
+    func teardownDuringPrepareInvalidatesActivation() async {
+        let apple = MockTranslationProvider(providerID: "apple", isOnDevice: true)
+        let blocking = BlockingTranslationProvider(providerID: "deepL", isOnDevice: false)
+        let coordinator = TranslationCoordinator(
+            router: TranslationRouter(availability: MockAvailability(stub: .unsupported)),
+            keychain: MockAPIKeyChecking(keys: ["deepL"]),
+            appleProvider: apple,
+            makeBYO: { _ in blocking }
+        )
+
+        // privacy OFF で reconcile 開始 → activate → blocking.prepare で停止。
+        let first = Task {
+            await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.deepL], order: [.deepL]))
+        }
+        await waitUntil { await blocking.prepareStarted }
+
+        // 所有者が明示 teardown（録音停止・アプリ終了相当）。
+        await coordinator.teardown()
+
+        // 停止していた prepare を復帰させる。
+        await blocking.releasePrepare()
+        await first.value
+
+        #expect(coordinator.hasActiveProvider == false)   // 復帰しても active 化しない
+        #expect(coordinator.isCloudActive == false)
+        let tears = await blocking.teardownCallCount
+        #expect(tears >= 1)                                // 作りかけ provider は teardown される
+    }
 }

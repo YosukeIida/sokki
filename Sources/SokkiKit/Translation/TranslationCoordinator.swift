@@ -64,14 +64,13 @@ public final class TranslationCoordinator {
 
     /// 録音開始時 / 設定変更時に呼ぶ。fail-closed で再評価する。
     ///
-    /// 重複呼び出しに備えて開始時に世代を採番し、各 await 復帰点で最新世代と照合する。
-    /// 自分より新しい `reconcile` が走っていたら以降の処理を放棄する。
+    /// 重複呼び出しや所有者の明示 `teardown()` に備え、各 await 復帰点で最新世代と照合する。
+    /// 自分より新しい `reconcile` / `teardown` が走っていたら以降の処理を放棄する。
+    /// `teardown()` 自身も世代を進めるため、**自分の世代は冒頭の `teardown()` 後に採番**する。
     public func reconcile(ctx: RoutingContext) async {
+        await teardown()
         generation &+= 1
         let gen = generation
-
-        await teardown()
-        guard gen == generation else { return }   // 新しい reconcile に追い越された。
 
         let decision = await router.resolve(ctx)
         guard gen == generation else { return }
@@ -181,15 +180,21 @@ public final class TranslationCoordinator {
 
     /// 録音停止 / 設定変化 / アプリ終了で呼ぶ。冪等・並行安全。
     ///
+    /// 世代を進めることで、`prepare()` suspension 中の進行中 `reconcile` を無効化する。
+    /// 所有者が prepare 停止中に `teardown()`（録音停止・アプリ終了）を呼んで完了しても、
+    /// その後 prepare が復帰した際に世代照合で弾かれ、作りかけ provider は起動されず破棄される。
+    ///
     /// MAJOR-1: `active`/`inputCont`/`pumpTask` をローカルへ退避して **await 前に即 nil クリア**
     /// する。これにより (1) 割り込みで再入しても同一 provider を二重 teardown しない、
     /// (2) await 中に別 `reconcile` が設定した新しい active/inputCont/pumpTask を誤って
     /// 破棄しない。閉じるのは退避したスナップショットだけ。
     ///
     /// #3: fail-closed が最も効くべきエラー時に破れないよう、退避した provider の
-    /// `teardown()`（socket/session close）を **最優先** で実行し、自タスクの
-    /// `pumpTask.cancel()` は **最後** に回す。
+    /// `teardown()`（socket/session close）を **最優先** で実行し、入力ストリームの
+    /// `finish()` と自タスクの `pumpTask.cancel()` はその後に回す。
     public func teardown() async {
+        generation &+= 1   // 進行中の reconcile/activate を無効化（残-2）。
+
         let provider = active
         let cont = inputCont
         let pump = pumpTask
@@ -198,8 +203,8 @@ public final class TranslationCoordinator {
         pumpTask = nil
         isCloudActive = false
 
-        cont?.finish()
-        await provider?.teardown()   // 最優先: socket/session を閉じる。
+        await provider?.teardown()   // 最優先: socket/session を閉じる（#3）。
+        cont?.finish()               // 入力ストリームを finish。
         pump?.cancel()               // 最後: pump をキャンセル。
     }
 
