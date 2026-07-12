@@ -9,6 +9,13 @@ public struct SettingsView: View {
     @Environment(AppDependencyContainer.self) private var deps
     @AppStorage("sokki.appearance") private var appearance: SokkiAppearance = .system
 
+    // MARK: - 翻訳 API キー入力（TASK-23）
+    //
+    // キー文字列はここにしか一時滞留しない（保存後・別プロバイダ選択後に必ず空へ戻す）。
+    // 保存済みキーは再表示しない — 表示できるのは「設定済みか否か」のみ。
+    @State private var apiKeyInput: String = ""
+    @State private var apiKeyErrorMessage: String?
+
     private var settings: AppSettingsModel {
         if let s = settingsArray.first { return s }
         let s = AppSettingsModel()
@@ -37,6 +44,12 @@ public struct SettingsView: View {
         // 翻訳設定が変わるたびに Coordinator を再評価する（fail-closed に乗る）。
         .onChange(of: translationSnapshot) { _, snapshot in
             Task { await deps.reconcileTranslation(snapshot) }
+        }
+        // プロバイダ切り替え時、入力途中のキー文字列を別プロバイダの account へ
+        // 誤って保存しないよう必ずクリアする。
+        .onChange(of: settings.translationProvider) { _, _ in
+            apiKeyInput = ""
+            apiKeyErrorMessage = nil
         }
     }
 
@@ -141,6 +154,28 @@ public struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            if requiresAPIKey {
+                Section("API キー（\(byoDisplayName(selectedProviderKind))）") {
+                    if hasStoredAPIKey {
+                        Label("設定済み", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    SecureField("API キー（保存後は再表示されません）", text: $apiKeyInput)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Button("保存") { saveAPIKey() }
+                            .disabled(apiKeyInput.isEmpty)
+                        Button("削除", role: .destructive) { deleteAPIKey() }
+                            .disabled(!hasStoredAPIKey)
+                    }
+                    if let apiKeyErrorMessage {
+                        Text(apiKeyErrorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
             Section("プライバシー") {
                 Toggle("プライバシーモード", isOn: Binding(
                     get: { settings.privacyModeEnabled },
@@ -167,6 +202,45 @@ public struct SettingsView: View {
         case .geminiLive: return "Gemini Live"
         case .googleCloudV3: return "Google Cloud Translation"
         case .apple, .auto: return kind.rawValue
+        }
+    }
+
+    // MARK: - 翻訳 API キー（TASK-23 / Keychain）
+
+    private var selectedProviderKind: TranslationProviderKind {
+        TranslationProviderKind(rawValue: settings.translationProvider) ?? .auto
+    }
+
+    /// 選択中プロバイダが BYO（クラウド送信・要キー）か。`auto` はここでは対象外
+    /// （実際に解決される具体種別は録音時までわからないため、明示選択時のみ UI を出す）。
+    private var requiresAPIKey: Bool {
+        selectedProviderKind.isOnDeviceImplied == false && selectedProviderKind != .auto
+    }
+
+    private var hasStoredAPIKey: Bool {
+        deps.keychainService.hasKey(for: selectedProviderKind.rawValue)
+    }
+
+    private func saveAPIKey() {
+        do {
+            try deps.keychainService.store(apiKeyInput, for: selectedProviderKind.rawValue)
+            apiKeyInput = ""
+            apiKeyErrorMessage = nil
+            Task { await deps.reconcileTranslation(translationSnapshot) }
+        } catch {
+            // キー文字列そのものはエラーメッセージに含めない。
+            apiKeyErrorMessage = "保存に失敗しました。もう一度お試しください。"
+        }
+    }
+
+    private func deleteAPIKey() {
+        do {
+            try deps.keychainService.delete(for: selectedProviderKind.rawValue)
+            apiKeyInput = ""
+            apiKeyErrorMessage = nil
+            Task { await deps.reconcileTranslation(translationSnapshot) }
+        } catch {
+            apiKeyErrorMessage = "削除に失敗しました。もう一度お試しください。"
         }
     }
 
