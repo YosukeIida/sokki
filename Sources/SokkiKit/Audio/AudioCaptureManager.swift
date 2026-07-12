@@ -21,12 +21,16 @@ actor AudioCaptureManager {
 
     enum CaptureError: Error {
         case audioEngineStartFailed(Error)
-        case systemAudioRequiresPhase2
+        /// システム音声キャプチャ（Core Audio Taps）の生成に失敗。基底の OSStatus を保持する。
+        case systemAudioCaptureFailed(SystemAudioTapError)
+        /// マイク＋システムの同時録音は TASK-12（Phase 2 デュアル録音）で対応予定。
+        case dualCaptureNotSupported
     }
 
     private var micContinuation:      AsyncStream<AudioChunk>.Continuation?
     private var systemContinuation:   AsyncStream<AudioChunk>.Continuation?
     private var micLevelContinuation: AsyncStream<Float>.Continuation?
+    private var systemLevelContinuation: AsyncStream<Float>.Continuation?
 
     private(set) var micStream:      AsyncStream<AudioChunk>
     private(set) var systemStream:   AsyncStream<AudioChunk>
@@ -35,13 +39,18 @@ actor AudioCaptureManager {
 
     private var audioEngine: AVAudioEngine?
     private var fileWriter: AudioFileWriter?
-    private let targetSampleRate: Double = 16_000
+    private let targetSampleRate: Double = AudioSampleConversion.targetSampleRate
+
+    /// システム音声キャプチャ（Core Audio Taps）。テストではモックを注入する。
+    private let systemTap: SystemAudioTapping
 
     /// 録音ファイルの初期化・書き込みで発生した最新のエラー（容量不足など）。
     /// 音声認識自体は継続するため録音は止めないが、呼び出し元が利用者へ通知できるよう保持する（P1）。
     private(set) var recordingSaveError: Error?
 
-    init() {
+    init(systemTap: SystemAudioTapping = SystemAudioTap()) {
+        self.systemTap = systemTap
+
         var micCont:    AsyncStream<AudioChunk>.Continuation!
         var sysCont:    AsyncStream<AudioChunk>.Continuation!
         var micLvlCont: AsyncStream<Float>.Continuation!
@@ -52,31 +61,41 @@ actor AudioCaptureManager {
         micLevelStream     = AsyncStream { micLvlCont = $0 }
         systemLevelStream  = AsyncStream { sysLvlCont = $0 }
 
-        micContinuation      = micCont
-        systemContinuation   = sysCont
-        micLevelContinuation = micLvlCont
-        // systemLevel は Phase 2 で使う (sysLvlCont を保持するだけ)
-        _ = sysLvlCont
+        micContinuation         = micCont
+        systemContinuation      = sysCont
+        micLevelContinuation    = micLvlCont
+        systemLevelContinuation = sysLvlCont
     }
 
     func startCapture(mode: CaptureMode, outputURL: URL? = nil) async throws {
-        guard mode == .micOnly else {
-            throw CaptureError.systemAudioRequiresPhase2
-        }
         // 2回目以降の録音のために新しいストリームを作り直す（AsyncStream は使い捨て）
         resetStreams()
-        try await startMicCapture(outputURL: outputURL)
+        switch mode {
+        case .micOnly:
+            try await startMicCapture(outputURL: outputURL)
+        case .systemOnly:
+            try startSystemCapture()
+        case .both:
+            // マイク＋システムの同時録音は TASK-12 で実装する。
+            throw CaptureError.dualCaptureNotSupported
+        }
     }
 
     private func resetStreams() {
         var micCont:    AsyncStream<AudioChunk>.Continuation!
+        var sysCont:    AsyncStream<AudioChunk>.Continuation!
         var micLvlCont: AsyncStream<Float>.Continuation!
+        var sysLvlCont: AsyncStream<Float>.Continuation!
 
-        micStream      = AsyncStream { micCont    = $0 }
-        micLevelStream = AsyncStream { micLvlCont = $0 }
+        micStream         = AsyncStream { micCont    = $0 }
+        systemStream      = AsyncStream { sysCont    = $0 }
+        micLevelStream    = AsyncStream { micLvlCont = $0 }
+        systemLevelStream = AsyncStream { sysLvlCont = $0 }
 
-        micContinuation      = micCont
-        micLevelContinuation = micLvlCont
+        micContinuation         = micCont
+        systemContinuation      = sysCont
+        micLevelContinuation    = micLvlCont
+        systemLevelContinuation = sysLvlCont
         // 新しい録音セッションのために前回のエラー状態をリセットする
         recordingSaveError = nil
     }
@@ -85,6 +104,8 @@ actor AudioCaptureManager {
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
+        // システム音声タップを解放する（未起動なら冪等な no-op）。
+        systemTap.stop()
         // 書き込み中に発生したエラー（容量不足など）があれば記録する
         if let writeError = fileWriter?.lastWriteError {
             recordingSaveError = writeError
@@ -95,9 +116,13 @@ actor AudioCaptureManager {
         // ストリームを閉じる → transcribeStream の for-await ループが終了し、フラッシュが走る
         micContinuation?.finish()
         micContinuation = nil
+        systemContinuation?.finish()
+        systemContinuation = nil
+        systemLevelContinuation?.finish()
+        systemLevelContinuation = nil
     }
 
-    // MARK: - Private
+    // MARK: - Microphone (Phase 1)
 
     private func startMicCapture(outputURL: URL?) async throws {
         let engine = AVAudioEngine()
@@ -105,12 +130,7 @@ actor AudioCaptureManager {
         let inputFormat = inputNode.outputFormat(forBus: 0)
 
         // ネイティブフォーマットでタップし、16kHz Float32 に変換
-        let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: targetSampleRate,
-            channels: 1,
-            interleaved: false
-        )!
+        let targetFormat = AudioSampleConversion.makeTargetFormat()
 
         guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
             return
@@ -130,10 +150,12 @@ actor AudioCaptureManager {
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self else { return }
-            guard let outBuffer = self.convertToBuffer(buffer, using: converter, to: targetFormat) else { return }
+            guard let outBuffer = AudioSampleConversion.convertToBuffer(
+                buffer, using: converter, to: targetFormat
+            ) else { return }
             // 音声スレッドで同期書き込み（順序保証）。
             writer?.write(outBuffer)
-            let converted = self.samples(from: outBuffer)
+            let converted = AudioSampleConversion.samples(from: outBuffer)
             let capturedAt = Date()
             Task {
                 await self.dispatchMic(samples: converted, capturedAt: capturedAt)
@@ -149,50 +171,34 @@ actor AudioCaptureManager {
         }
     }
 
-    private nonisolated func convertToBuffer(
-        _ buffer: AVAudioPCMBuffer,
-        using converter: AVAudioConverter,
-        to targetFormat: AVAudioFormat
-    ) -> AVAudioPCMBuffer? {
-        let frameCapacity = AVAudioFrameCount(
-            Double(buffer.frameLength) * targetFormat.sampleRate / buffer.format.sampleRate
-        )
-        guard let outBuffer = AVAudioPCMBuffer(
-            pcmFormat: targetFormat,
-            frameCapacity: max(frameCapacity, 1)
-        ) else { return nil }
-
-        var error: NSError?
-        var inputProvided = false
-        converter.convert(to: outBuffer, error: &error) { _, outStatus in
-            if inputProvided {
-                outStatus.pointee = .noDataNow
-                return nil
-            }
-            inputProvided = true
-            outStatus.pointee = .haveData
-            return buffer
-        }
-
-        guard error == nil else { return nil }
-        return outBuffer
-    }
-
-    private nonisolated func samples(from buffer: AVAudioPCMBuffer) -> [Float] {
-        guard let channelData = buffer.floatChannelData?[0] else { return [] }
-        return Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
-    }
-
     private func dispatchMic(samples: [Float], capturedAt: Date) {
         let chunk = AudioChunk(lane: .microphone, samples: samples, capturedAt: capturedAt)
         micContinuation?.yield(chunk)
-        micLevelContinuation?.yield(rmsLevel(samples))
+        micLevelContinuation?.yield(AudioSampleConversion.rmsLevel(samples))
     }
 
-    private nonisolated func rmsLevel(_ samples: [Float]) -> Float {
-        guard !samples.isEmpty else { return -60 }
-        let rms = sqrt(samples.map { $0 * $0 }.reduce(0, +) / Float(samples.count))
-        let db = rms > 0 ? 20 * log10(rms) : -60
-        return max(-60, min(0, db))
+    // MARK: - System audio (Phase 2 / Core Audio Taps)
+
+    /// システム音声キャプチャを開始し、systemStream / systemLevelStream に流す。
+    ///
+    /// IO クロージャは専用 IO キュー上で呼ばれ、変換済み `[Float]` のみをアクター境界へ渡す。
+    /// systemOnly 録音のファイル書き出しは TASK-12（デュアル録音・録音ファイル管理）に委ねるため、
+    /// ここでは AudioFileWriter を開かない。
+    private func startSystemCapture() throws {
+        do {
+            try systemTap.start { [weak self] samples, capturedAt in
+                Task { [weak self] in
+                    await self?.dispatchSystem(samples: samples, capturedAt: capturedAt)
+                }
+            }
+        } catch let error as SystemAudioTapError {
+            throw CaptureError.systemAudioCaptureFailed(error)
+        }
+    }
+
+    private func dispatchSystem(samples: [Float], capturedAt: Date) {
+        let chunk = AudioChunk(lane: .system, samples: samples, capturedAt: capturedAt)
+        systemContinuation?.yield(chunk)
+        systemLevelContinuation?.yield(AudioSampleConversion.rmsLevel(samples))
     }
 }
