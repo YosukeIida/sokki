@@ -7,6 +7,8 @@ struct SessionListView: View {
 
     @State private var selectedSession: SessionModel?
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppDependencyContainer.self) private var deps
+    private var importer: AudioFileImporter { deps.importer }
 
     var body: some View {
         List(sessions, selection: $selectedSession) { session in
@@ -21,11 +23,30 @@ struct SessionListView: View {
                 ContentUnavailableView(
                     "録音がありません",
                     systemImage: "waveform",
-                    description: Text("新しい録音を開始してください")
+                    description: Text("新しい録音を開始してください、またはファイルを読み込んでください")
                 )
+            }
+            if importer.isImporting {
+                importingOverlay
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if let message = importer.importErrorMessage {
+                importErrorBanner(message)
             }
         }
         .toolbar {
+            ToolbarItem {
+                Button {
+                    Task {
+                        await importer.presentOpenPanelAndImport()
+                    }
+                } label: {
+                    Label("ファイルを読み込む…", systemImage: "square.and.arrow.down")
+                }
+                .disabled(importer.isImporting)
+                .accessibilityIdentifier("importFileButton")
+            }
             ToolbarItem {
                 Button {
                     deleteSelected()
@@ -38,6 +59,41 @@ struct SessionListView: View {
         .navigationDestination(item: $selectedSession) { session in
             SessionDetailView(session: session)
         }
+    }
+
+    private var importingOverlay: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .scaleEffect(1.5)
+            Text(importer.importingMessage)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .padding(32)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .shadow(radius: 8)
+        .accessibilityIdentifier("importingOverlay")
+    }
+
+    private func importErrorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.primary)
+            Spacer()
+            Button {
+                importer.dismissImportError()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding()
     }
 
     private func deleteSelected() {

@@ -10,6 +10,7 @@ public final class AppDependencyContainer {
     let speakerProfileStore: SpeakerProfileStore
     let sessionManager: SessionManager
     var pipeline: TranscriptionPipeline
+    let importer: AudioFileImporter
 
     public init(modelContainer: ModelContainer) {
         let ctx = ModelContext(modelContainer)
@@ -20,12 +21,19 @@ public final class AppDependencyContainer {
         speakerProfileStore = SpeakerProfileStore(modelContext: ctx)
         sessionManager = SessionManager(modelContainer: modelContainer)
 
-        pipeline = TranscriptionPipeline(
+        let pipeline = TranscriptionPipeline(
             captureManager: captureManager,
             transcriptionEngine: transcriptionEngine,
             diarizationEngine: diarizationEngine,
             speakerStore: speakerProfileStore,
             sessionManager: sessionManager
+        )
+        self.pipeline = pipeline
+
+        importer = AudioFileImporter(
+            transcriptionEngine: transcriptionEngine,
+            sessionManager: sessionManager,
+            pipeline: pipeline
         )
     }
 }
