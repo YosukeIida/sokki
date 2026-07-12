@@ -80,7 +80,28 @@ struct RecordingView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
             .accessibilityIdentifier("translationToggle")
+
+            Spacer()
+
+            // 録音中のみ表示（TASK-36）。文字起こしは常にローカルなので、翻訳がクラウドを
+            // 使っているか（`isCloudActive`）だけでバッジ種別が決まる。
+            if pipeline.isRunning {
+                processingModeBadge
+            }
         }
+    }
+
+    /// 「ローカル処理」/「API 使用中」バッジ。状態決定は `ProcessingModeIndicator`
+    /// （純粋関数）に切り出してあり、ここでは表示のみを担当する。
+    private var processingModeBadge: some View {
+        let mode = ProcessingModeIndicator.current(isCloudActive: deps.translationCoordinator.isCloudActive)
+        return Label(mode.label, systemImage: mode.systemImage)
+            .font(.caption)
+            .foregroundStyle(mode == .cloudAPI ? Color.orange : Color.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.thinMaterial, in: Capsule())
+            .accessibilityIdentifier("processingModeIndicator")
     }
 
     private var loadingOverlay: some View {
