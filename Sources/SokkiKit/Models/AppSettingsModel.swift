@@ -20,5 +20,9 @@ final class AppSettingsModel {
     var embeddingMatchThreshold: Float = 0.82
     var embeddingEMAAlpha: Float = 0.1
 
+    // 会議自動検出設定（TASK-15）。SCShareableContent 呼び出し（画面収録権限プロンプト）を
+    // 伴うため既定は false。true の間のみ RecordingView がポーリングを開始する。
+    var meetingDetectionEnabled: Bool = false
+
     init() {}
 }

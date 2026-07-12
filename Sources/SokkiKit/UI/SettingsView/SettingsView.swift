@@ -58,6 +58,15 @@ public struct SettingsView: View {
                     Text("small").tag("openai_whisper-small")
                 }
             }
+            Section("会議自動検出") {
+                Toggle("会議を検出したら録音を提案する", isOn: Binding(
+                    get: { settings.meetingDetectionEnabled },
+                    set: { settings.meetingDetectionEnabled = $0 }
+                ))
+                Text("Zoom / Microsoft Teams / Google Meet のウィンドウを定期的に確認します。有効にすると画面収録の権限確認が表示される場合があります。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding()
     }
