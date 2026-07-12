@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import os
 
 struct TranscriptSegmentViewModel: Identifiable {
     let id: UUID
@@ -46,6 +47,8 @@ final class TranscriptionPipeline {
     private var timerTask: Task<Void, Never>?
     private var currentSessionID: PersistentIdentifier?
     private var recordingStartedAt: Date?
+
+    private let logger = Logger(subsystem: "com.sokki.app", category: "diarization")
 
     init(
         captureManager: AudioCaptureManager,
@@ -162,8 +165,69 @@ final class TranscriptionPipeline {
         if let sid = currentSessionID, let duration {
             try? await sessionManager.updateDuration(sessionID: sid, duration: duration)
         }
+
+        // Phase 3: 録音全体に対して diarization をバッチ実行し、話者プロファイルを解決・付与する。
+        // ここまでにセグメントは保存済みのため、diarization が失敗しても文字起こし結果は保持される。
+        if let sid = currentSessionID {
+            await runDiarizationIfEnabled(sessionID: sid)
+        }
+
         recordingStartedAt = nil
-        // Phase 3 で: diarization をバッチ実行
+    }
+
+    // MARK: - Diarization（P3）
+
+    /// 設定が有効なら、保存済み音声ファイルを読み込み diarization → 話者プロファイル付与を行う。
+    /// 音声が読めない・設定が無効などの場合は何もしない（graceful degradation）。
+    private func runDiarizationIfEnabled(sessionID: PersistentIdentifier) async {
+        guard await sessionManager.diarizationEnabled() else { return }
+        guard let audioURL = await sessionManager.audioURL(forSessionID: sessionID),
+              FileManager.default.fileExists(atPath: audioURL.path) else {
+            logger.notice("話者分離をスキップ: 録音ファイルが見つかりません")
+            return
+        }
+        let samples: [Float]
+        do {
+            samples = try AudioFileReader.readMonoSamples(url: audioURL)
+        } catch {
+            logger.error("話者分離をスキップ: 音声の読み込みに失敗しました: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        guard !samples.isEmpty else { return }
+
+        // diarization（初回はモデル DL を伴い時間がかかる）中は UI に進捗を示す。
+        isLoading = true
+        loadingMessage = "話者を識別中…"
+        defer {
+            isLoading = false
+            loadingMessage = ""
+        }
+        await diarizeAndAssign(audioSamples: samples, sessionID: sessionID)
+    }
+
+    /// diarization → プロファイル解決 → セグメント付与を実行する（非スロー）。
+    /// 失敗はログに残すのみで、文字起こし結果の保存を妨げない（graceful degradation）。
+    /// テストから直接呼べるよう internal 可視性。
+    func diarizeAndAssign(audioSamples: [Float], sessionID: PersistentIdentifier) async {
+        do {
+            try await applyDiarization(audioSamples: audioSamples, sessionID: sessionID)
+        } catch {
+            logger.error("話者分離に失敗しました（非致命）: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// diarization の中核処理（スロー）。テストから直接呼べるよう internal 可視性。
+    func applyDiarization(audioSamples: [Float], sessionID: PersistentIdentifier) async throws {
+        if await !diarizationEngine.isReady {
+            try await diarizationEngine.prepare()
+        }
+        let result = try await diarizationEngine.diarize(audioArray: audioSamples)
+        let mapping = try await speakerStore.resolveProfiles(from: result)
+        try await sessionManager.assignSpeakersByOverlap(
+            sessionID: sessionID,
+            diarizationSegments: result.segments,
+            profileMapping: mapping
+        )
     }
 
     /// 利用者がエラーバナーを閉じたときに呼ぶ。
