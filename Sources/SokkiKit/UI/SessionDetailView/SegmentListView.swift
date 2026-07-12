@@ -17,32 +17,21 @@ struct SegmentListView: View {
 
 struct SegmentRow: View {
     let segment: SegmentModel
+    @Environment(\.sokkiTokens) private var tokens
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            // 話者カラーバー（Phase 3 で有効化）
-            if let profile = segment.speakerProfile,
-               let color = Color(hex: profile.colorHex) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(color)
-                    .frame(width: 4)
-                    .padding(.vertical, 4)
-            } else {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.secondary.opacity(0.3))
-                    .frame(width: 4)
-                    .padding(.vertical, 4)
-            }
+            SpeakerColorBar(color: barColor)
+                .padding(.vertical, 4)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 9) {
+                    TimestampText(seconds: segment.start)
+                        .font(.caption)
                     Text(segment.speakerDisplayName)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text(formatTimestamp(segment.start))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(tokens.muted)
                 }
                 Text(segment.text)
                     .font(.body)
@@ -52,17 +41,20 @@ struct SegmentRow: View {
         }
         .padding(.horizontal)
     }
-}
 
-private extension Color {
-    init?(hex: String) {
-        var str = hex.trimmingCharacters(in: .whitespaces)
-        if str.hasPrefix("#") { str = String(str.dropFirst()) }
-        guard str.count == 6, let value = UInt64(str, radix: 16) else { return nil }
-        self.init(
-            red: Double((value >> 16) & 0xFF) / 255,
-            green: Double((value >> 8) & 0xFF) / 255,
-            blue: Double(value & 0xFF) / 255
-        )
+    /// 話者カラーバーの色。同一 `speakerProfile` は同一色（`colorHex` 由来）になる。
+    private var barColor: Color {
+        Self.barColor(colorHex: segment.speakerProfile?.colorHex)
+    }
+
+    /// 話者プロファイルの `colorHex` からカラーバー色を解決する。
+    /// SwiftData（`@Model`）非依存の純粋関数として切り出し、単体テスト可能にしている。
+    /// - Parameter colorHex: `SpeakerProfileModel.colorHex`（例: "#3B82F6"）。
+    ///   `nil`（プロファイル未割当）または不正な hex はコントロールグレーにフォールバックする。
+    static func barColor(colorHex: String?) -> Color {
+        guard let colorHex, let color = Color(hex: colorHex) else {
+            return Color.secondary.opacity(0.3)
+        }
+        return color
     }
 }

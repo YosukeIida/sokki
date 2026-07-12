@@ -91,16 +91,3 @@ struct SpeakerProfileRow: View {
         }
     }
 }
-
-private extension Color {
-    init?(hex: String) {
-        var str = hex.trimmingCharacters(in: .whitespaces)
-        if str.hasPrefix("#") { str = String(str.dropFirst()) }
-        guard str.count == 6, let value = UInt64(str, radix: 16) else { return nil }
-        self.init(
-            red: Double((value >> 16) & 0xFF) / 255,
-            green: Double((value >> 8) & 0xFF) / 255,
-            blue: Double(value & 0xFF) / 255
-        )
-    }
-}
