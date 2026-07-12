@@ -228,6 +228,18 @@ final class TranscriptionPipeline {
             try await diarizationEngine.prepare()
         }
         let result = try await diarizationEngine.diarize(audioArray: audioSamples)
+
+        // 設定の声紋照合閾値をここで反映する（照合の直前・TASK-27）。
+        // AppSettingsModel.embeddingMatchThreshold は以前から存在したが未配線だった。
+        let threshold = await sessionManager.embeddingMatchThreshold()
+        await speakerStore.updateThreshold(threshold)
+
+#if DEBUG
+        // 実 embedding での閾値 0.82 の妥当性検証用ハーネス（TASK-27）。UI には出さず、
+        // DEBUG ビルドでのみ Logger（category "diagnostics"）へ INFO 出力する。
+        EmbeddingSimilarityReport.compute(from: result).log()
+#endif
+
         let mapping = try await speakerStore.resolveProfiles(from: result)
         try await sessionManager.assignSpeakersByOverlap(
             sessionID: sessionID,

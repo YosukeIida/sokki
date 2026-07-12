@@ -215,4 +215,81 @@ struct DiarizationPipelineTests {
         let disabled = await sessionManager.diarizationEnabled()
         #expect(disabled == false)
     }
+
+    // MARK: - 声紋照合閾値の配線（TASK-27）
+
+    @Test("未保存時は embeddingMatchThreshold の既定値 0.82 を返す")
+    func embeddingMatchThresholdDefaultsTo082() async throws {
+        let container = try makeContainer()
+        let sessionManager = SessionManager(modelContainer: container)
+
+        let threshold = await sessionManager.embeddingMatchThreshold()
+        #expect(abs(threshold - 0.82) < 1e-6)
+    }
+
+    @Test("設定に保存された embeddingMatchThreshold が読み取られる")
+    func embeddingMatchThresholdReflectsSettings() async throws {
+        let container = try makeContainer()
+        let sessionManager = SessionManager(modelContainer: container)
+
+        let ctx = ModelContext(container)
+        let settings = AppSettingsModel()
+        settings.embeddingMatchThreshold = 0.95
+        ctx.insert(settings)
+        try ctx.save()
+
+        let threshold = await sessionManager.embeddingMatchThreshold()
+        #expect(abs(threshold - 0.95) < 1e-6)
+    }
+
+    @Test("設定の閾値が厳しいほど同一話者の再利用がされにくくなる（配線の実効性を確認）")
+    func thresholdSettingChangesMatchingBehavior() async throws {
+        // S1 の2発話の類似度を 0.90 に固定する。
+        // 既定閾値 0.82 なら同一プロファイルに解決され、設定で 0.95 に引き上げると別プロファイルになる。
+        let pair = makeEmbeddingPair(cosineSimilarity: 0.90)
+
+        // 既定閾値（0.82）: マージされ 1 プロファイル
+        do {
+            let container = try makeContainer()
+            let mock = MockDiarizationEngine(result: makeResult([("S1", 0, 5, pair.a)]))
+            let (pipeline, sessionManager, _) = makePipeline(container: container, diarization: mock)
+
+            let sid1 = try await sessionManager.createSession(title: "録音1", mode: .micOnly)
+            try await sessionManager.appendSegment(MockSegment(text: "one", start: 0, end: 5), toSessionID: sid1)
+            try await pipeline.applyDiarization(audioSamples: [0], sessionID: sid1)
+
+            await mock.setResult(makeResult([("S9", 0, 5, pair.b)]))
+            let sid2 = try await sessionManager.createSession(title: "録音2", mode: .micOnly)
+            try await sessionManager.appendSegment(MockSegment(text: "two", start: 0, end: 5), toSessionID: sid2)
+            try await pipeline.applyDiarization(audioSamples: [0], sessionID: sid2)
+
+            let profiles = try fetchProfiles(container)
+            #expect(profiles.count == 1)
+        }
+
+        // 閾値を 0.95 に設定: マージされず 2 プロファイル（配線が効いていることの確認）
+        do {
+            let container = try makeContainer()
+            let ctx = ModelContext(container)
+            let settings = AppSettingsModel()
+            settings.embeddingMatchThreshold = 0.95
+            ctx.insert(settings)
+            try ctx.save()
+
+            let mock = MockDiarizationEngine(result: makeResult([("S1", 0, 5, pair.a)]))
+            let (pipeline, sessionManager, _) = makePipeline(container: container, diarization: mock)
+
+            let sid1 = try await sessionManager.createSession(title: "録音1", mode: .micOnly)
+            try await sessionManager.appendSegment(MockSegment(text: "one", start: 0, end: 5), toSessionID: sid1)
+            try await pipeline.applyDiarization(audioSamples: [0], sessionID: sid1)
+
+            await mock.setResult(makeResult([("S9", 0, 5, pair.b)]))
+            let sid2 = try await sessionManager.createSession(title: "録音2", mode: .micOnly)
+            try await sessionManager.appendSegment(MockSegment(text: "two", start: 0, end: 5), toSessionID: sid2)
+            try await pipeline.applyDiarization(audioSamples: [0], sessionID: sid2)
+
+            let profiles = try fetchProfiles(container)
+            #expect(profiles.count == 2)
+        }
+    }
 }

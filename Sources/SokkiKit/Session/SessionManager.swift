@@ -63,6 +63,13 @@ actor SessionManager {
         return settings.diarizationEnabled
     }
 
+    /// 設定モデルの声紋照合閾値。未保存の場合は既定値（0.82）とみなす（TASK-27）。
+    func embeddingMatchThreshold() -> Float {
+        let descriptor = FetchDescriptor<AppSettingsModel>()
+        guard let settings = try? modelContext.fetch(descriptor).first else { return 0.82 }
+        return settings.embeddingMatchThreshold
+    }
+
     /// セグメントとの時間の重なりが最大になる diarization 話者ラベルを返す。重なりが無ければ nil。
     private static func bestOverlapSpeaker(
         segmentStart: Double,

@@ -77,18 +77,25 @@ public struct SettingsView: View {
                         in: 0...10
                 )
             }
-            Section("声紋照合") {
+            Section {
                 LabeledContent("照合閾値") {
                     HStack {
                         Slider(value: Binding(
                             get: { Double(settings.embeddingMatchThreshold) },
                             set: { settings.embeddingMatchThreshold = Float($0) }
-                        ), in: 0.6...0.95, step: 0.01)
+                        ), in: 0.5...0.95, step: 0.01)
                         Text(String(format: "%.2f", settings.embeddingMatchThreshold))
                             .monospacedDigit()
                             .frame(width: 40)
                     }
                 }
+            } header: {
+                Text("声紋照合（詳細設定）")
+            } footer: {
+                // TASK-27: 実 embedding での検証手順は requirements.md の Open Question を参照。
+                Text("同一話者を別人と誤認識する場合は下げ、別人を同一話者と誤認識する場合は上げてください（既定 0.82）。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding()
