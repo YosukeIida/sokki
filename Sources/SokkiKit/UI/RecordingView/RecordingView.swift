@@ -92,7 +92,7 @@ struct RecordingView: View {
         HStack(spacing: 0) {
             modeButton("Mic", mode: .micOnly)
             modeButton("System", mode: .systemOnly, disabled: true)
-            modeButton("Both", mode: .both, disabled: true)
+            modeButton("Both", mode: .both)
         }
         .fixedSize()
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
