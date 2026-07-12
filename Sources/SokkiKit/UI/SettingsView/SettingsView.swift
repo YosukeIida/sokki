@@ -57,6 +57,14 @@ public struct SettingsView: View {
                     Text("medium").tag("openai_whisper-medium")
                     Text("small").tag("openai_whisper-small")
                 }
+                Picker("文字起こし言語", selection: Binding(
+                    get: { settings.transcriptionLanguage },
+                    set: { settings.transcriptionLanguage = $0 }
+                )) {
+                    ForEach(TranscriptionLanguageOption.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option.rawValue)
+                    }
+                }
             }
         }
         .padding()
