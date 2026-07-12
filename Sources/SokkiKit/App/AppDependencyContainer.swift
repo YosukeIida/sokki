@@ -6,7 +6,7 @@ import SwiftData
 public final class AppDependencyContainer {
     let captureManager: AudioCaptureManager
     let transcriptionEngine: WhisperKitEngine
-    let diarizationEngine: SpeakerKitEngine
+    let diarizationEngine: any DiarizationEngine
     let speakerProfileStore: SpeakerProfileStore
     let sessionManager: SessionManager
     var pipeline: TranscriptionPipeline
@@ -16,7 +16,7 @@ public final class AppDependencyContainer {
 
         captureManager = AudioCaptureManager()
         transcriptionEngine = WhisperKitEngine()
-        diarizationEngine = SpeakerKitEngine()
+        diarizationEngine = FluidAudioEngine()
         speakerProfileStore = SpeakerProfileStore(modelContext: ctx)
         sessionManager = SessionManager(modelContainer: modelContainer)
 

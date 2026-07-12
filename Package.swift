@@ -19,6 +19,10 @@ let package = Package(
             url: "https://github.com/pointfreeco/swift-snapshot-testing",
             from: "1.17.0"
         ),
+        .package(
+            url: "https://github.com/FluidInference/FluidAudio.git",
+            from: "0.15.5"
+        ),
     ],
     targets: [
         // ライブラリターゲット：ビジネスロジック + UI（RenderPreview / ExecuteSnippet 対応）
@@ -27,6 +31,7 @@ let package = Package(
             dependencies: [
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
                 .product(name: "SpeakerKit", package: "argmax-oss-swift"),
+                .product(name: "FluidAudio", package: "FluidAudio"),
             ],
             path: "Sources/SokkiKit",
             swiftSettings: [

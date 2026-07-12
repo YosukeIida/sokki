@@ -15,6 +15,9 @@ packages:
   swift-snapshot-testing:
     url: https://github.com/pointfreeco/swift-snapshot-testing
     from: 1.17.0
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    from: 0.15.5
 
 settings:
   base:
@@ -39,6 +42,8 @@ targets:
         product: WhisperKit
       - package: argmax-oss-swift
         product: SpeakerKit
+      - package: FluidAudio
+        product: FluidAudio
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yosukeiida.sokkikit
