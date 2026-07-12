@@ -31,6 +31,8 @@ final class TranscriptionPipeline {
     private(set) var elapsedSeconds: Double = 0
     /// 録音ファイルの保存に問題が発生した場合の利用者向けメッセージ（P1）。
     private(set) var recordingSaveErrorMessage: String? = nil
+    /// 文字起こしの最終処理でエラーが起きた際の非致命的な通知メッセージ（P2）。
+    private(set) var transcriptionNoticeMessage: String? = nil
 
     // Phase 2 で実装（SCStream 連携後に有効化）
     // var micLevelStream:    AsyncStream<Float> { ... }
@@ -152,7 +154,12 @@ final class TranscriptionPipeline {
         } catch is CancellationError {
             // ユーザーが強制中断した場合は無視
         } catch {
-            // 文字起こしエラーは無視してセッションを保存
+            // 文字起こしの最終 flush が失敗しても、画面に出ている未確定テキストを
+            // フォールバックとして確定・保存し、未確定分の消失を防ぐ（MAJOR-2b）。
+            // エラー自体はログ + 非致命的な UI 通知にとどめ、セッションは保存する。
+            await persistPendingHypothesisFallback()
+            transcriptionNoticeMessage = "文字起こしの最終処理でエラーが発生しました。認識済みのテキストは保存されています。"
+            NSLog("TranscriptionPipeline: final transcription flush failed: \(error.localizedDescription)")
         }
         isLoading = false
         loadingMessage = ""
@@ -171,6 +178,34 @@ final class TranscriptionPipeline {
     /// 利用者がエラーバナーを閉じたときに呼ぶ。
     func dismissRecordingSaveError() {
         recordingSaveErrorMessage = nil
+    }
+
+    /// 利用者が文字起こし通知バナーを閉じたときに呼ぶ。
+    func dismissTranscriptionNotice() {
+        transcriptionNoticeMessage = nil
+    }
+
+    /// 最終 flush が失敗した場合のフォールバック。画面に残っている未確定テキスト（hypothesis）を
+    /// 確定セグメントとして保存し、UI にも反映する。タイムスタンプは最善努力（直近の確定終端〜経過秒）。
+    private func persistPendingHypothesisFallback() async {
+        let text = hypothesisText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        let start = confirmedSegments.last?.end ?? 0
+        let end = max(start, elapsedSeconds)
+        let segment = TranscriptionSegmentSnapshot(
+            start: start,
+            end: end,
+            text: text,
+            isConfirmed: true,
+            avgLogProb: 0
+        )
+        confirmedSegments.append(TranscriptSegmentViewModel(segment))
+        hypothesisText = ""
+
+        if let sid = currentSessionID {
+            try? await sessionManager.appendSegment(segment, toSessionID: sid)
+        }
     }
 
 #if DEBUG

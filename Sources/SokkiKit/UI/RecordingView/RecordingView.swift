@@ -29,6 +29,8 @@ struct RecordingView: View {
                     errorBanner(err) { errorMessage = nil }
                 } else if let saveErr = pipeline.recordingSaveErrorMessage {
                     errorBanner(saveErr) { pipeline.dismissRecordingSaveError() }
+                } else if let notice = pipeline.transcriptionNoticeMessage {
+                    errorBanner(notice) { pipeline.dismissTranscriptionNotice() }
                 }
             }
             .frame(maxHeight: .infinity)

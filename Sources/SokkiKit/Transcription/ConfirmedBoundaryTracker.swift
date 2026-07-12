@@ -31,6 +31,10 @@ struct ConfirmedBoundaryTracker {
     /// 直近に確定したセグメントの終端（秒）。次回デコードの `clipTimestamps` 起点になる。
     private(set) var lastConfirmedEnd: Float = 0
 
+    /// 直近の `ingest` で未確定として保持しているセグメント。
+    /// 停止時に最終デコードが空・欠落を返した場合のフォールバック確定に使う（未確定分の消失防止）。
+    private(set) var pendingHypothesis: [DecodedSegment] = []
+
     init(requiredSegments: Int = 2) {
         self.requiredSegments = max(0, requiredSegments)
     }
@@ -39,32 +43,43 @@ struct ConfirmedBoundaryTracker {
     mutating func ingest(_ segments: [DecodedSegment]) -> TranscriptionStreamUpdate {
         guard segments.count > requiredSegments else {
             // 確定に足りる本数がない → すべて未確定
+            pendingHypothesis = segments
             return TranscriptionStreamUpdate(newlyConfirmed: [], hypothesis: Self.join(segments))
         }
 
         let confirmCount = segments.count - requiredSegments
-        let confirmSlice = Array(segments.prefix(confirmCount))
+        // 既確定境界より後ろのセグメントだけを確定候補にする（二重確定の防止）。
+        // 例: prefix が [end=4, end=6] で lastConfirmedEnd=5 のとき、end=4 は既に確定済みなので除外する。
+        let confirmSlice = Array(segments.prefix(confirmCount)).filter { $0.end > lastConfirmedEnd }
         let remaining = Array(segments.suffix(requiredSegments))
+        pendingHypothesis = remaining
 
-        // 境界が前進する場合のみ確定する（後退・停滞時は確定しない安全弁）。
-        if let last = confirmSlice.last, last.end > lastConfirmedEnd {
+        if let last = confirmSlice.last {
             lastConfirmedEnd = last.end
             return TranscriptionStreamUpdate(
                 newlyConfirmed: Self.snapshots(confirmSlice),
                 hypothesis: Self.join(remaining)
             )
         } else {
+            // 境界が前進しない（新規確定なし）。
             return TranscriptionStreamUpdate(newlyConfirmed: [], hypothesis: Self.join(remaining))
         }
     }
 
-    /// 停止時: 直近の確定境界より後ろのセグメントをすべて確定し、hypothesis を空にする。
+    /// 停止時: 確定境界より後ろのセグメントをすべて確定し、hypothesis を空にする。
+    ///
+    /// 最終デコード結果が空や一時的な欠落を返した場合は、保持中の hypothesis（`pendingHypothesis`）を
+    /// フォールバックとして確定する。これにより「停止直前まで画面に出ていた未確定テキスト」を取りこぼさない。
     mutating func flush(_ segments: [DecodedSegment]) -> TranscriptionStreamUpdate {
         let fresh = segments.filter { $0.end > lastConfirmedEnd }
-        if let last = fresh.last {
+        let toConfirm = fresh.isEmpty
+            ? pendingHypothesis.filter { $0.end > lastConfirmedEnd }
+            : fresh
+        if let last = toConfirm.last {
             lastConfirmedEnd = last.end
         }
-        return TranscriptionStreamUpdate(newlyConfirmed: Self.snapshots(fresh), hypothesis: "")
+        pendingHypothesis = []
+        return TranscriptionStreamUpdate(newlyConfirmed: Self.snapshots(toConfirm), hypothesis: "")
     }
 
     // MARK: - Helpers

@@ -98,4 +98,48 @@ struct ConfirmedBoundaryTrackerTests {
         // hypothesis は連結後にトリム
         #expect(update.hypothesis == "world")
     }
+
+    @Test("flush フォールバック: 最終デコードが空でも保持中 hypothesis を確定する")
+    func flushFallsBackToPendingWhenFinalDecodeEmpty() {
+        var tracker = ConfirmedBoundaryTracker(requiredSegments: 2)
+
+        // A 確定、B・C は hypothesis として保持
+        let live = tracker.ingest([seg("A", 0, 1), seg("B", 1, 2), seg("C", 2, 3)])
+        #expect(live.newlyConfirmed.map(\.text) == ["A"])
+        #expect(live.hypothesis == "BC")
+
+        // 最終デコードが空配列を返しても、保持中の B・C が確定される（消失しない）
+        let flushed = tracker.flush([])
+        #expect(flushed.newlyConfirmed.map(\.text) == ["B", "C"])
+        #expect(flushed.hypothesis == "")
+        #expect(tracker.lastConfirmedEnd == 3)
+    }
+
+    @Test("flush フォールバック: 最終デコードが有効ならそちらを優先する")
+    func flushPrefersFinalDecodeWhenNonEmpty() {
+        var tracker = ConfirmedBoundaryTracker(requiredSegments: 2)
+        _ = tracker.ingest([seg("A", 0, 1), seg("B", 1, 2), seg("C", 2, 3)]) // A 確定, pending=[B,C]
+
+        // 最終デコードが確定境界(1秒)以降を精緻化して返した場合はそちらを確定
+        let flushed = tracker.flush([seg("B2", 1, 2), seg("C2", 2, 3), seg("D2", 3, 4)])
+        #expect(flushed.newlyConfirmed.map(\.text) == ["B2", "C2", "D2"])
+        #expect(flushed.hypothesis == "")
+        #expect(tracker.lastConfirmedEnd == 4)
+    }
+
+    @Test("二重確定の防止: 既確定境界より前の prefix セグメントは再確定しない")
+    func doesNotReconfirmSegmentsBeforeBoundary() {
+        var tracker = ConfirmedBoundaryTracker(requiredSegments: 1)
+
+        // 境界を 6 秒まで進める
+        let first = tracker.ingest([seg("X", 0, 6), seg("Y", 6, 6.2)])
+        #expect(first.newlyConfirmed.map(\.text) == ["X"])
+        #expect(tracker.lastConfirmedEnd == 6)
+
+        // prefix = [P(end=4.5, 既確定領域), Q(end=7)] → P は除外され Q のみ確定
+        let second = tracker.ingest([seg("P", 4, 4.5), seg("Q", 6.5, 7), seg("R", 7, 8)])
+        #expect(second.newlyConfirmed.map(\.text) == ["Q"])
+        #expect(tracker.lastConfirmedEnd == 7)
+        #expect(second.hypothesis == "R")
+    }
 }

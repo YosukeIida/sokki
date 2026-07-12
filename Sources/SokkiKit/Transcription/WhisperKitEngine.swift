@@ -75,45 +75,72 @@ actor WhisperKitEngine: TranscriptionEngine {
     /// 確定境界を前進させながらリアルタイムに文字起こしする。
     ///
     /// WhisperKit の `AudioStreamTranscriber` と同じ戦略を、当アプリの
-    /// `AsyncStream<AudioChunk>`（16kHz mono Float32・mic / system 両対応）供給に合わせて再実装する:
-    /// 全録音を保持するバッファを持ち、直近の確定境界 `lastConfirmedEnd` から末尾までを
-    /// `clipTimestamps` で再デコードする。末尾 `requiredSegments` 本を hypothesis として保持し、
-    /// それより前を確定する。ストリーム終了時に残りを flush して確定する。
+    /// `AsyncStream<AudioChunk>`（16kHz mono Float32・mic / system 両対応）供給に合わせて再実装する。
+    ///
+    /// 構造は参照実装（`AudioStreamTranscriber`）と同じく「入力の集約」と「定期デコード」を分離する:
+    /// - **drain Task**: 入力ストリームを継続的に読み出し、専用アクター `AudioSampleAccumulator` の
+    ///   単一サンプルバッファへ即時集約する。これにより `AsyncStream` 内部の無制限バッファに
+    ///   未処理チャンクが溜まり続ける（＝全量バッファとの二重保持・遅延の際限ない増大）のを防ぐ。
+    /// - **デコードループ**: バッファのスナップショットに対して、直近の確定境界 `lastConfirmedEnd` から
+    ///   末尾までを `clipTimestamps` で再デコードする。末尾 `requiredSegments` 本を hypothesis として
+    ///   保持し、それより前を確定する。ストリーム終了時に残りを flush して確定する。
     func transcribeStream(
         audioChunks: AsyncStream<AudioChunk>
     ) -> AsyncThrowingStream<TranscriptionStreamUpdate, Error> {
         AsyncThrowingStream { continuation in
             // このアクター内で生成される非構造化 Task はアクター隔離を継承する。
-            Task {
-                do {
-                    var tracker = ConfirmedBoundaryTracker(requiredSegments: Self.requiredSegmentsForConfirmation)
-                    var buffer: [Float] = []
-                    var lastProcessedCount = 0
-                    let minNewSamples = Int(Self.minNewSecondsPerStep * Float(Self.sampleRate))
+            let producer = Task {
+                let accumulator = AudioSampleAccumulator()
 
+                // 入力ストリームを専用 Task で drain して単一バッファへ即時集約する（MAJOR-1）。
+                let drainTask = Task {
                     for await chunk in audioChunks {
-                        buffer.append(contentsOf: chunk.samples)
+                        await accumulator.append(chunk.samples)
+                    }
+                    await accumulator.finish()
+                }
+                defer { drainTask.cancel() }
 
-                        // 直近の処理以降に十分な新規音声が溜まってからデコードする（過剰デコード抑制）。
-                        guard buffer.count - lastProcessedCount >= minNewSamples else { continue }
-                        lastProcessedCount = buffer.count
+                var tracker = ConfirmedBoundaryTracker(requiredSegments: Self.requiredSegmentsForConfirmation)
+                var lastProcessedCount = 0
+                let minNewSamples = Int(Self.minNewSecondsPerStep * Float(Self.sampleRate))
+                var hypothesisShown = false
 
-                        let decoded = try await decodeSegments(buffer, clipStart: tracker.lastConfirmedEnd)
-                        let update = tracker.ingest(decoded)
-                        // 変化がない空アップデートは送らない（UI 更新の無駄打ちを避ける）。
-                        if !update.newlyConfirmed.isEmpty || !update.hypothesis.isEmpty {
-                            continuation.yield(update)
+                // 直前が非空で今回が空なら、hypothesis を画面から消すため空更新も送る（参照実装と同じ挙動）。
+                func emit(_ update: TranscriptionStreamUpdate) {
+                    let hasContent = !update.newlyConfirmed.isEmpty || !update.hypothesis.isEmpty
+                    guard hasContent || hypothesisShown else { return }
+                    continuation.yield(update)
+                    hypothesisShown = !update.hypothesis.isEmpty
+                }
+
+                do {
+                    var reachedEnd = false
+                    while !Task.isCancelled {
+                        let finished = await accumulator.isFinished
+                        let count = await accumulator.count
+
+                        if !finished, count - lastProcessedCount >= minNewSamples {
+                            let buffer = await accumulator.snapshot()
+                            lastProcessedCount = buffer.count
+                            let decoded = try await decodeSegments(buffer, clipStart: tracker.lastConfirmedEnd)
+                            emit(tracker.ingest(decoded))
+                        } else if finished {
+                            reachedEnd = true
+                            break
+                        } else {
+                            // 新規音声が溜まるまで少し待つ（参照実装同様のポーリング）。
+                            try await Task.sleep(for: .milliseconds(Self.pollIntervalMillis))
                         }
                     }
 
-                    // フラッシュ: バッファ末尾の残りを確定して hypothesis をクリアする。
-                    if !buffer.isEmpty {
-                        let decoded = try await decodeSegments(buffer, clipStart: tracker.lastConfirmedEnd)
-                        let update = tracker.flush(decoded)
-                        continuation.yield(update)
-                    } else {
-                        // 何も無くても hypothesis を確実にクリアする。
-                        continuation.yield(TranscriptionStreamUpdate(newlyConfirmed: [], hypothesis: ""))
+                    if reachedEnd {
+                        // フラッシュ: バッファ末尾の残りを確定して hypothesis をクリアする。
+                        let finalBuffer = await accumulator.snapshot()
+                        let decoded = finalBuffer.isEmpty
+                            ? []
+                            : try await decodeSegments(finalBuffer, clipStart: tracker.lastConfirmedEnd)
+                        continuation.yield(tracker.flush(decoded))
                     }
                     continuation.finish()
                 } catch is CancellationError {
@@ -122,6 +149,8 @@ actor WhisperKitEngine: TranscriptionEngine {
                     continuation.finish(throwing: error)
                 }
             }
+
+            continuation.onTermination = { _ in producer.cancel() }
         }
     }
 
@@ -151,4 +180,28 @@ actor WhisperKitEngine: TranscriptionEngine {
     private static let requiredSegmentsForConfirmation = 2
     /// 1回のデコードに必要な新規音声の最小秒数。
     private static let minNewSecondsPerStep: Float = 1.0
+    /// 新規音声が最小秒数に満たないときのポーリング間隔（ミリ秒）。
+    private static let pollIntervalMillis = 100
+}
+
+/// 入力 `AsyncStream<AudioChunk>` を drain して単一のサンプルバッファへ集約する軽量アクター。
+///
+/// デコードが実時間より遅くなっても、入力チャンクは即座にここへ吸い上げられるため、
+/// `AsyncStream` 内部の無制限バッファに未処理チャンクが積み上がらない。デコードループは
+/// 常に最新の `snapshot()` に対して回せる（＝再デコードで自然にキャッチアップする）。
+private actor AudioSampleAccumulator {
+    private(set) var samples: [Float] = []
+    private(set) var isFinished = false
+
+    func append(_ newSamples: [Float]) {
+        samples.append(contentsOf: newSamples)
+    }
+
+    func finish() {
+        isFinished = true
+    }
+
+    var count: Int { samples.count }
+
+    func snapshot() -> [Float] { samples }
 }
