@@ -3,7 +3,7 @@ import Foundation
 public struct DiarizationSegment: Sendable {
     public let start: TimeInterval
     public let end: TimeInterval
-    public let speakerID: String       // "SPEAKER_00" 等（エンジン内部ラベル）
+    public let speakerID: String       // エンジン依存の内部ラベル（FluidAudio は "S1" 等、SpeakerKit は "SPEAKER_00" 等）。下流は不透明なキーとして扱う
     public let embedding: [Float]?     // 256-dim WeSpeaker ResNet34
 }
 

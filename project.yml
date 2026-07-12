@@ -17,7 +17,9 @@ packages:
     from: 1.17.0
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
-    from: 0.15.5
+    # pre-1.0 は minor でも破壊的変更がありうるため upToNextMinor 相当（minorVersion）で上限を絞る
+    # Package.swift の .upToNextMinor(from: "0.15.5") と同じ意図
+    minorVersion: 0.15.5
 
 settings:
   base:

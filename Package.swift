@@ -21,7 +21,8 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/FluidInference/FluidAudio.git",
-            from: "0.15.5"
+            // pre-1.0 は minor でも破壊的変更がありうるため upToNextMinor で上限を絞る
+            .upToNextMinor(from: "0.15.5")
         ),
     ],
     targets: [
