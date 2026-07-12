@@ -42,7 +42,11 @@ struct SessionListView: View {
 
     private func deleteSelected() {
         guard let session = selectedSession else { return }
+        if let audioFileURL = session.audioFileURL {
+            try? FileManager.default.removeItem(at: audioFileURL)
+        }
         modelContext.delete(session)
+        try? modelContext.save()
         selectedSession = nil
     }
 }

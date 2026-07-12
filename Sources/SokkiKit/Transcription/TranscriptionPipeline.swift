@@ -29,6 +29,8 @@ final class TranscriptionPipeline {
     /// モデルダウンロードの進捗（0...1）。ダウンロード段階以外や進捗が取得できない場合は nil。
     private(set) var downloadProgress: Double? = nil
     private(set) var elapsedSeconds: Double = 0
+    /// 録音ファイルの保存に問題が発生した場合の利用者向けメッセージ（P1）。
+    private(set) var recordingSaveErrorMessage: String? = nil
 
     // Phase 2 で実装（SCStream 連携後に有効化）
     // var micLevelStream:    AsyncStream<Float> { ... }
@@ -93,6 +95,7 @@ final class TranscriptionPipeline {
         // 録音ファイルの書き出し先を渡す（P1-1）
         let audioURL = await sessionManager.audioURL(forSessionID: sessionID)
         try await captureManager.startCapture(mode: mode, outputURL: audioURL)
+        recordingSaveErrorMessage = await captureManager.recordingSaveError.map(makeSaveErrorMessage)
 
         isRunning = true
         elapsedSeconds = 0
@@ -135,6 +138,9 @@ final class TranscriptionPipeline {
 
         // 1. ストリームを閉じる（transcribeStream のフラッシュがトリガーされる）
         await captureManager.stopCapture()
+        if let error = await captureManager.recordingSaveError {
+            recordingSaveErrorMessage = makeSaveErrorMessage(error)
+        }
 
         // 2. フラッシュ（バッファ内の残音声を文字起こし）が終わるまで待つ
         isLoading = true
@@ -160,6 +166,11 @@ final class TranscriptionPipeline {
         // Phase 3 で: diarization をバッチ実行
     }
 
+    /// 利用者がエラーバナーを閉じたときに呼ぶ。
+    func dismissRecordingSaveError() {
+        recordingSaveErrorMessage = nil
+    }
+
 #if DEBUG
     func setForPreview(
         isRunning: Bool = false,
@@ -179,6 +190,10 @@ final class TranscriptionPipeline {
         self.hypothesisText = hypothesisText
     }
 #endif
+
+    private func makeSaveErrorMessage(_ error: Error) -> String {
+        "録音ファイルの保存に失敗しました。ディスクの空き容量を確認してください。（\(error.localizedDescription)）"
+    }
 
     private func startTimer() {
         let start = Date()

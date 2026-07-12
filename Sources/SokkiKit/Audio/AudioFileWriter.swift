@@ -13,6 +13,14 @@ final class AudioFileWriter: @unchecked Sendable {
 
     private let lock = NSLock()
     private var file: AVAudioFile?
+    private var _lastWriteError: Error?
+
+    /// 直近の書き込み失敗（容量不足など）。呼び出し元がポーリングして利用者へ通知するために使う。
+    var lastWriteError: Error? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _lastWriteError
+    }
 
     init(url: URL, processingFormat: AVAudioFormat) throws {
         let settings: [String: Any]
@@ -42,13 +50,18 @@ final class AudioFileWriter: @unchecked Sendable {
         )
     }
 
-    /// 音声スレッドから同期的に呼ばれる。エラーは個別に握りつぶす（録音継続を優先）。
+    /// 音声スレッドから同期的に呼ばれる。書き込みは録音継続を優先して止めないが、
+    /// エラーは `lastWriteError` に記録し、呼び出し元が利用者へ通知できるようにする（P1）。
     func write(_ buffer: AVAudioPCMBuffer) {
         guard buffer.frameLength > 0 else { return }
         lock.lock()
         defer { lock.unlock() }
         guard let file else { return }
-        try? file.write(from: buffer)
+        do {
+            try file.write(from: buffer)
+        } catch {
+            _lastWriteError = error
+        }
     }
 
     /// 解放時にファイルがファイナライズされる。冪等。

@@ -7,22 +7,45 @@ import XCTest
 ///
 /// 前提: マイクのアクセス許可が事前に付与されていること（初回はダイアログが出るため
 /// このテストでは自動許可できない。手動で一度許可しておくこと）。
+///
+/// production データからの隔離: テストごとに一時ディレクトリを発行し、
+/// `SOKKI_UITEST_STORE_URL` / `SOKKI_UITEST_RECORDINGS_DIR` 経由でアプリに
+/// 専用の SwiftData ストアと録音保存先を使わせる（`sokki` 通常 scheme の実行や
+/// 利用者本人の録音データに影響しない）。この scheme は project.yml の `sokkiE2E`
+/// でのみビルドされ、通常の `sokki` scheme には含まれない。
 @MainActor
 final class SokkiUITests: XCTestCase {
     private var app: XCUIApplication!
+    private var tempRootDirectory: URL!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+
+        tempRootDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sokkiE2E_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempRootDirectory, withIntermediateDirectories: true)
+
         app = XCUIApplication()
+        app.launchEnvironment["SOKKI_UITEST_STORE_URL"] =
+            tempRootDirectory.appendingPathComponent("sokkiE2E.store.sqlite").path
+        app.launchEnvironment["SOKKI_UITEST_RECORDINGS_DIR"] =
+            tempRootDirectory.appendingPathComponent("recordings", isDirectory: true).path
         app.launch()
     }
 
     override func tearDownWithError() throws {
         app.terminate()
+        try? FileManager.default.removeItem(at: tempRootDirectory)
     }
 
-    /// TASK-6: マイク録音→停止→録音一覧に反映されることを確認する。
-    func testRecordStopAndAppearsInSessionList() throws {
+    private var recordingsDirectory: URL {
+        tempRootDirectory.appendingPathComponent("recordings", isDirectory: true)
+    }
+
+    /// マイク録音を開始し、モデル準備完了を待ってから数秒録音して停止する。
+    /// 一覧画面に移動し、作成されたセッションの先頭行を返す。
+    @discardableResult
+    private func recordShortSessionAndReturnToList() throws -> XCUIElement {
         let recordButton = app.descendants(matching: .any)["recordStopButton"]
         XCTAssertTrue(recordButton.waitForExistence(timeout: 5), "録音ボタンが見つからない")
 
@@ -57,6 +80,50 @@ final class SokkiUITests: XCTestCase {
 
         let firstRow = app.descendants(matching: .any).matching(identifier: "sessionRow").firstMatch
         XCTAssertTrue(firstRow.waitForExistence(timeout: 5), "録音一覧にセッションが表示されない")
+        return firstRow
+    }
+
+    /// TASK-6: マイク録音→停止→録音一覧に反映されることを確認する。
+    /// 先頭行の存在だけでなく、録音ファイルの実体・duration・タイトルが実際に
+    /// 保存されていること、およびエクスポート結果がこのセッション由来であることまで確認する。
+    func testRecordStopAndAppearsInSessionList() throws {
+        let firstRow = try recordShortSessionAndReturnToList()
+
+        // 録音ファイルが実際にディスクへ書き出されていること（P1-1 経路）を確認する。
+        let recordingFiles: [URL]
+        do {
+            recordingFiles = try FileManager.default.contentsOfDirectory(
+                at: recordingsDirectory, includingPropertiesForKeys: [.fileSizeKey]
+            )
+        } catch {
+            XCTFail("録音ディレクトリの読み取りに失敗（録音ファイルが保存されていない可能性）: \(error)")
+            return
+        }
+        XCTAssertEqual(recordingFiles.count, 1, "録音ファイルが1つ生成されているはず")
+        if let recordingFile = recordingFiles.first {
+            let fileSize = try recordingFile.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            XCTAssertGreaterThan(fileSize, 0, "録音ファイルのサイズが0（音声が書き込まれていない）")
+        }
+
+        // セッションタイトル（自動生成される "録音_yyyyMMdd_HHmm" 形式）が一覧行に表示されていること。
+        let titlePredicate = NSPredicate(format: "label BEGINSWITH %@", "録音_")
+        let titleText = firstRow.staticTexts.matching(titlePredicate).firstMatch
+        XCTAssertTrue(titleText.waitForExistence(timeout: 5), "セッションタイトルが見つからない")
+        let sessionTitle = titleText.label
+
+        // duration（"m:ss" 形式）が保存され表示されていること。
+        // 作成日時（createdAt の time スタイル）も同じ "[0-9]+:[0-9]{2}" パターンに
+        // マッチし得る（24時間表記ロケールなど）ため、accessibilityIdentifier で明示的に特定する。
+        let durationText = firstRow.descendants(matching: .any)["sessionRow.duration"]
+        XCTAssertTrue(
+            durationText.waitForExistence(timeout: 5),
+            "録音時間の表示が見つからない（duration が保存されていない可能性）"
+        )
+        let durationPredicate = NSPredicate(format: "label MATCHES %@", "[0-9]+:[0-9]{2}")
+        XCTAssertTrue(
+            durationPredicate.evaluate(with: durationText.label),
+            "duration の表示形式が想定と異なる: \(durationText.label)"
+        )
 
         // TASK-7: 詳細画面でエクスポート（Markdownコピー）を確認する
         firstRow.click()
@@ -77,20 +144,19 @@ final class SokkiUITests: XCTestCase {
 
         let pasteboardText = NSPasteboard.general.string(forType: .string)
         XCTAssertNotNil(pasteboardText, "クリップボードに内容がコピーされていない")
-        XCTAssertFalse(pasteboardText?.isEmpty ?? true, "クリップボードの内容が空")
+        // MarkdownExporter は先頭行に "## <タイトル>" を出力する（Sources/SokkiKit/Export/MarkdownExporter.swift）。
+        // タイトルの一致まで見ることで、別セッションの内容が混入していないことを保証する。
+        XCTAssertTrue(
+            pasteboardText?.contains("## \(sessionTitle)") ?? false,
+            "クリップボードの内容がこのセッションの Markdown になっていない"
+        )
     }
 
     /// TASK-7: 「ファイルへ保存…」で保存ダイアログが開くことを確認する。
-    /// 既存セッション（前のテストや手動操作で作成済み）が一覧にある前提。無ければスキップする。
+    /// 一時ストアに隔離されているため、このテスト自身で録音してセッションを用意する
+    /// （他テストの実行順序や既存データに依存しない）。
     func testExportSaveDialogAppears() throws {
-        let sessionListNav = app.descendants(matching: .any)["sidebar.sessionList"]
-        XCTAssertTrue(sessionListNav.waitForExistence(timeout: 5))
-        sessionListNav.click()
-
-        let firstRow = app.descendants(matching: .any).matching(identifier: "sessionRow").firstMatch
-        guard firstRow.waitForExistence(timeout: 5) else {
-            throw XCTSkip("録音セッションが1件も無いためスキップ（先に testRecordStopAndAppearsInSessionList を実行してください）")
-        }
+        let firstRow = try recordShortSessionAndReturnToList()
         firstRow.click()
 
         let exportButton = app.descendants(matching: .any)["square.and.arrow.up"]

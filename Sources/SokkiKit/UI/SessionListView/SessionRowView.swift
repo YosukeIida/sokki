@@ -14,6 +14,7 @@ struct SessionRowView: View {
                 if session.durationSeconds > 0 {
                     Text("·")
                     Text(formatDuration(session.durationSeconds))
+                        .accessibilityIdentifier("sessionRow.duration")
                 }
                 Text("·")
                 Text("\(session.segments.count) セグメント")

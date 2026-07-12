@@ -17,6 +17,7 @@ public enum TranscriptionEngineLoadPhase: Sendable, Equatable {
 }
 
 public protocol TranscriptionEngine: Actor {
+    func prepare() async throws
     func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws
     func transcribe(audioArray: [Float]) async throws -> [any TranscriptionSegment]
     func transcribeStream(
@@ -26,10 +27,16 @@ public protocol TranscriptionEngine: Actor {
     var modelIdentifier: String { get }
 }
 
+// `prepare()` と `prepare(onProgress:)` は互いのデフォルト実装を提供する。
+// 適合型はどちらか一方だけを実装すればよい（両方未実装のままだと無限再帰になる）。
+// 旧シグネチャ `prepare()` だけを実装した既存の外部 conformer のソース互換性を保つため。
 public extension TranscriptionEngine {
-    /// 進捗通知が不要な場合の簡易呼び出し。
     func prepare() async throws {
         try await prepare(onProgress: { _ in })
+    }
+
+    func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws {
+        try await prepare()
     }
 }
 

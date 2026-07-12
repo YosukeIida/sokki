@@ -65,6 +65,7 @@ targets:
         com.apple.security.device.screen-capture: true
         com.apple.security.network.client: true
         com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.bookmarks.app-scope: true
     dependencies:
       - target: SokkiKit
     settings:
@@ -106,13 +107,24 @@ targets:
         TEST_TARGET_NAME: sokki
 
 schemes:
+  # 通常の開発・CI 用 scheme。実機マイクを使う UI テストは含めない
+  # （TCC 未許可・モデル未取得の環境でも再現可能にするため）。
   sokki:
     build:
       targets:
         sokki: all
         sokkiTests: [test]
-        sokkiUITests: [test]
     test:
       targets:
         - sokkiTests
+
+  # 実機マイクを使う E2E 専用 scheme。マイクのアクセス許可を事前に付与した上で
+  # 明示的にこの scheme を選んで実行する（xcodebuild test -scheme sokkiE2E）。
+  sokkiE2E:
+    build:
+      targets:
+        sokki: all
+        sokkiUITests: [test]
+    test:
+      targets:
         - sokkiUITests

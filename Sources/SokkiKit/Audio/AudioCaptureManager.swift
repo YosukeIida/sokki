@@ -37,6 +37,10 @@ actor AudioCaptureManager {
     private var fileWriter: AudioFileWriter?
     private let targetSampleRate: Double = 16_000
 
+    /// 録音ファイルの初期化・書き込みで発生した最新のエラー（容量不足など）。
+    /// 音声認識自体は継続するため録音は止めないが、呼び出し元が利用者へ通知できるよう保持する（P1）。
+    private(set) var recordingSaveError: Error?
+
     init() {
         var micCont:    AsyncStream<AudioChunk>.Continuation!
         var sysCont:    AsyncStream<AudioChunk>.Continuation!
@@ -73,12 +77,18 @@ actor AudioCaptureManager {
 
         micContinuation      = micCont
         micLevelContinuation = micLvlCont
+        // 新しい録音セッションのために前回のエラー状態をリセットする
+        recordingSaveError = nil
     }
 
     func stopCapture() async {
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
+        // 書き込み中に発生したエラー（容量不足など）があれば記録する
+        if let writeError = fileWriter?.lastWriteError {
+            recordingSaveError = writeError
+        }
         // tap 停止後にファイルを閉じる（書き込み中の競合は AudioFileWriter のロックで防ぐ）
         fileWriter?.close()
         fileWriter = nil
@@ -106,9 +116,15 @@ actor AudioCaptureManager {
             return
         }
 
-        // 出力先が指定されていれば録音ファイルを開く（P1-1）。失敗しても録音・文字起こしは継続。
+        // 出力先が指定されていれば録音ファイルを開く（P1-1）。初期化に失敗しても音声認識は
+        // 継続するが、エラーは recordingSaveError に記録し呼び出し元が利用者へ通知できるようにする。
         if let outputURL {
-            self.fileWriter = try? AudioFileWriter(url: outputURL, processingFormat: targetFormat)
+            do {
+                self.fileWriter = try AudioFileWriter(url: outputURL, processingFormat: targetFormat)
+            } catch {
+                self.fileWriter = nil
+                self.recordingSaveError = error
+            }
         }
         let writer = self.fileWriter
 

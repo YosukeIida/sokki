@@ -26,7 +26,9 @@ struct RecordingView: View {
                 }
 
                 if let err = errorMessage {
-                    errorBanner(err)
+                    errorBanner(err) { errorMessage = nil }
+                } else if let saveErr = pipeline.recordingSaveErrorMessage {
+                    errorBanner(saveErr) { pipeline.dismissRecordingSaveError() }
                 }
             }
             .frame(maxHeight: .infinity)
@@ -62,7 +64,7 @@ struct RecordingView: View {
         .shadow(radius: 8)
     }
 
-    private func errorBanner(_ message: String) -> some View {
+    private func errorBanner(_ message: String, onDismiss: @escaping () -> Void) -> some View {
         VStack {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -71,7 +73,7 @@ struct RecordingView: View {
                     .font(.callout)
                     .foregroundStyle(.primary)
                 Spacer()
-                Button { errorMessage = nil } label: {
+                Button(action: onDismiss) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }

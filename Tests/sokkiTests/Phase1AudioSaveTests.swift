@@ -83,6 +83,31 @@ struct AudioFileWriterTests {
         #expect(readFile.length == 8_000)
     }
 
+    @Test("存在しない親ディレクトリへの初期化は失敗する")
+    func initThrowsForNonExistentParentDirectory() {
+        let format = make16kMonoFormat()
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sokkiTest_missingDir_\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("test.wav")
+
+        #expect(throws: (any Error).self) {
+            try AudioFileWriter(url: url, processingFormat: format)
+        }
+    }
+
+    @Test("正常書き込みが続く限り lastWriteError は nil のまま")
+    func lastWriteErrorStaysNilOnSuccess() throws {
+        let format = make16kMonoFormat()
+        let url = makeTmpURL(ext: "wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let writer = try AudioFileWriter(url: url, processingFormat: format)
+        #expect(writer.lastWriteError == nil)
+        writer.write(makeSilentBuffer(format: format, frameCount: 16000))
+        #expect(writer.lastWriteError == nil)
+        writer.close()
+    }
+
     @Test("M4A ラウンドトリップ: ファイルが存在し length > 0")
     func m4aRoundTrip() throws {
         let format = make16kMonoFormat()
@@ -107,6 +132,7 @@ struct AudioFileWriterTests {
 
 /// テスト用: SessionModel の Sendable な値だけを運ぶ構造体
 struct SessionSnapshot: Sendable {
+    let id: UUID
     let audioFilePath: String
     let durationSeconds: Double
 }
@@ -118,7 +144,7 @@ extension SessionManager {
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
         return try modelContext.fetch(descriptor).map {
-            SessionSnapshot(audioFilePath: $0.audioFilePath, durationSeconds: $0.durationSeconds)
+            SessionSnapshot(id: $0.id, audioFilePath: $0.audioFilePath, durationSeconds: $0.durationSeconds)
         }
     }
 }
@@ -182,5 +208,28 @@ struct SessionManagerPhase1Tests {
         #expect(FileManager.default.fileExists(atPath: url.path))
         let readFile = try AVAudioFile(forReading: url)  // m4a: priming があるため > 0 で確認
         #expect(readFile.length > 0)
+    }
+
+    @Test("deleteSession: SwiftData のレコードだけでなく録音ファイルも削除される")
+    func deleteSessionRemovesAudioFile() async throws {
+        let manager = try makeManager()
+        let sessionID = try await manager.createSession(title: "deleteTest", mode: .micOnly)
+        let url = try #require(await manager.audioURL(forSessionID: sessionID))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let format = make16kMonoFormat()
+        let writer = try AudioFileWriter(url: url, processingFormat: format)
+        writer.write(makeSilentBuffer(format: format, frameCount: 16000))
+        writer.close()
+        #expect(FileManager.default.fileExists(atPath: url.path))
+
+        let snapshots = try await manager.allSessionSnapshots()
+        let snap = try #require(snapshots.first)
+
+        try await manager.deleteSession(snap.id)
+
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        let remaining = try await manager.sessionCount()
+        #expect(remaining == 0)
     }
 }
