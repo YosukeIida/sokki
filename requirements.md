@@ -317,10 +317,10 @@ UI デザインは `claude.ai/design` で先行作成し、Claude Code ハンド
 - [x] ~~配布方針~~ → 初期は無署名 dmg 配布、Developer ID 取得後に署名+公証へ移行（TASK-10、2026-07-13）
 - [ ] Homebrew Cask リポジトリの管理方法（個人 tap vs 公式）※ Developer ID 取得後に着手
 - [ ] コード署名なし配布時の Gatekeeper 回避方法のドキュメント化（当面必要・優先度高）
-- [ ] 話者分離の日本語 DER 実測（参考: Pyannote OSS community-1=28.8% / Sortformer v2=12.7% / DiariZen=15.6%、arXiv 2509.26177）
+- [ ] 話者分離の日本語 DER 実測（参考: Pyannote OSS community-1=28.8% / Sortformer v2=12.7% / DiariZen=15.6%、arXiv 2509.26177）※計測ハーネス整備済み（`docs/diarization-benchmark.md` / TASK-31）・実測待ち
 - [ ] SpeakerKit v1.0 で embedding 取り出し API が公開されているかの確認（未公開なら FluidAudio `extractEmbedding()` を採用）
 - [ ] リアルタイム文字起こし時のバッファリング戦略（チャンクサイズ）
-- [ ] 声紋照合閾値の日本語音声での最適値（暫定 0.82、実測後調整）
+- [ ] 声紋照合閾値の日本語音声での最適値（暫定 0.82、実測後調整）※計測ハーネス整備済み（`docs/diarization-benchmark.md` の §7 / TASK-31）・実測待ち
 - [ ] リアルタイム翻訳プロバイダの選定実証（Apple Translation の 19 言語で要件を満たすか / Gemini Live Translate のプレビュー安定性・コスト許容範囲）
 - [ ] Core Audio Taps（ProcessTap）と SCStream のどちらを既定にするか（entitlement・権限フローの比較）
 
