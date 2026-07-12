@@ -4,7 +4,17 @@ struct RecordingView: View {
     @State private var captureMode: AudioCaptureManager.CaptureMode = .micOnly
     @State private var errorMessage: String? = nil
     @Environment(AppDependencyContainer.self) private var deps
+    @Environment(\.sokkiTokens) private var tokens
     private var pipeline: TranscriptionPipeline { deps.pipeline }
+
+    // フローティング字幕（TASK-19）。原文列を持つ SubtitleFeed と、それを載せる
+    // フローティングパネルの所有者を View で保持する。
+    // NOTE: 文字起こしパイプライン→feed.pushConfirmed の結線と TranslationCoordinator の
+    // 注入は上流（TASK-14 系列）マージ後の統合。本ブランチではトグルでパネルを開閉できるが
+    // 訳文レーンは Coordinator 注入まで「翻訳中…」表示のままになる。
+    @State private var subtitleFeed = SubtitleFeed()
+    @State private var floatingSubtitle: FloatingSubtitleController?
+    @State private var floatingSubtitleVisible = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,6 +47,11 @@ struct RecordingView: View {
 
             controlBar
                 .padding()
+        }
+        .onDisappear {
+            // 所有者による明示破棄（@MainActor クラスの AppKit 破棄は deinit に頼らない）。
+            floatingSubtitle?.close()
+            floatingSubtitleVisible = false
         }
     }
 
@@ -166,7 +181,38 @@ struct RecordingView: View {
             .accessibilityIdentifier("recordStopButton")
 
             Spacer()
+
+            // フローティング字幕トグル（TASK-19）。
+            // TODO(上流マージ後): 表示条件を settings.translationEnabled に絞る。
+            // 現状は「翻訳有効」の設定信号が本ブランチに無いため録音中のみ提示する。
+            if pipeline.isRunning {
+                floatingSubtitleToggle
+            }
         }
+    }
+
+    private var floatingSubtitleToggle: some View {
+        Button {
+            toggleFloatingSubtitle()
+        } label: {
+            Image(systemName: floatingSubtitleVisible ? "captions.bubble.fill" : "captions.bubble")
+                .font(.system(size: 20))
+                .foregroundStyle(floatingSubtitleVisible ? tokens.accent : .secondary)
+        }
+        .buttonStyle(.plain)
+        .help("フローティング字幕")
+        .accessibilityIdentifier("floatingSubtitleToggle")
+    }
+
+    private func toggleFloatingSubtitle() {
+        let controller = floatingSubtitle ?? {
+            // TranslationCoordinator は上流マージ後に attach する（訳文レーン有効化の結線点）。
+            let c = FloatingSubtitleController(feed: subtitleFeed, tokens: tokens)
+            floatingSubtitle = c
+            return c
+        }()
+        controller.toggle()
+        floatingSubtitleVisible = controller.isVisible
     }
 
     private func formatElapsed(_ seconds: Double) -> String {
