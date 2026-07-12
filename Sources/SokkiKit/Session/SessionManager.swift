@@ -21,13 +21,12 @@ actor SessionManager {
         try modelContext.save()
     }
 
-    /// diarization 結果をセッションのセグメントへ時間区間の重なりで割り当てる（P3）。
+    /// diarization 結果をセッションのセグメントへ時間区間の重なりで割り当てる（P3 / TASK-26）。
     ///
-    /// 各 `SegmentModel` に対し、最も時間が重なる `DiarizationSegment` の話者ラベルを採用し、
+    /// 割当ロジックは `SpeakerAlignment.assign`（WhisperX 方式・話者ごとの交差合計が最大）に委譲する。
     /// `profileMapping`（speakerID → プロファイル識別子）から対応する `SpeakerProfileModel` を紐づける。
     /// `SpeakerProfileModel` は @Model のため actor 境界を越えられない。ここでは Sendable な
     /// `PersistentIdentifier` を受け取り、この actor のコンテキスト内で解決する（CLAUDE.md 規約）。
-    /// 精緻なマージ（境界の再調整など）は TASK-26 スコープ。
     func assignSpeakersByOverlap(
         sessionID: PersistentIdentifier,
         diarizationSegments: [DiarizationSegment],
@@ -42,12 +41,18 @@ actor SessionManager {
             }
         }
 
-        for segment in session.segments {
-            guard let speakerID = Self.bestOverlapSpeaker(
-                segmentStart: segment.start,
-                segmentEnd: segment.end,
-                diarizationSegments: diarizationSegments
-            ) else { continue }
+        // relationship 配列を一度だけスナップショットし、index で純粋関数の結果と対応づける。
+        let segments = session.segments
+        let intervals = segments.map {
+            SpeakerAlignment.Interval(start: $0.start, end: $0.end)
+        }
+        let assignment = SpeakerAlignment.assign(
+            transcriptionIntervals: intervals,
+            diarizationSegments: diarizationSegments
+        )
+
+        for (index, segment) in segments.enumerated() {
+            guard let speakerID = assignment[index] else { continue }
             segment.speakerLabel = speakerID
             if let profile = resolvedProfiles[speakerID] {
                 segment.speakerProfile = profile
@@ -61,23 +66,6 @@ actor SessionManager {
         let descriptor = FetchDescriptor<AppSettingsModel>()
         guard let settings = try? modelContext.fetch(descriptor).first else { return true }
         return settings.diarizationEnabled
-    }
-
-    /// セグメントとの時間の重なりが最大になる diarization 話者ラベルを返す。重なりが無ければ nil。
-    private static func bestOverlapSpeaker(
-        segmentStart: Double,
-        segmentEnd: Double,
-        diarizationSegments: [DiarizationSegment]
-    ) -> String? {
-        var best: (speakerID: String, overlap: Double)?
-        for d in diarizationSegments {
-            let overlap = min(segmentEnd, d.end) - max(segmentStart, d.start)
-            guard overlap > 0 else { continue }
-            if best == nil || overlap > best!.overlap {
-                best = (d.speakerID, overlap)
-            }
-        }
-        return best?.speakerID
     }
 
     func updateDuration(sessionID: PersistentIdentifier, duration: Double) throws {
