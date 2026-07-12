@@ -40,8 +40,18 @@ struct RecordingView: View {
 
     private var loadingOverlay: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .scaleEffect(1.5)
+            if let progress = pipeline.downloadProgress {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 220)
+                Text("\(Int((progress * 100).rounded()))%")
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            } else {
+                ProgressView()
+                    .scaleEffect(1.5)
+            }
             Text(pipeline.loadingMessage)
                 .font(.callout)
                 .multilineTextAlignment(.center)

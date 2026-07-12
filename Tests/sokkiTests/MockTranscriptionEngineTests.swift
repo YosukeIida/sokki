@@ -63,12 +63,54 @@ struct MockTranscriptionEngineTests {
         #expect(seg.end == 2.5)
         #expect(seg.isConfirmed == false)
     }
+
+    @Test("prepare(onProgress:) がスタブした進捗フェーズを順に通知する")
+    func prepareReportsStubbedProgress() async throws {
+        let engine = MockTranscriptionEngine()
+        await engine.setStubbedProgressPhases([
+            .downloading(fractionCompleted: 0.0),
+            .downloading(fractionCompleted: 0.5),
+            .downloading(fractionCompleted: 1.0),
+            .loadingIntoMemory,
+        ])
+
+        let recorder = ProgressPhaseRecorder()
+        try await engine.prepare(onProgress: { recorder.record($0) })
+
+        #expect(recorder.phases == [
+            .downloading(fractionCompleted: 0.0),
+            .downloading(fractionCompleted: 0.5),
+            .downloading(fractionCompleted: 1.0),
+            .loadingIntoMemory,
+        ])
+    }
+
+    @Test("引数なしの prepare() は進捗通知なしで動作する（後方互換）")
+    func noArgPrepareStillWorks() async throws {
+        let engine = MockTranscriptionEngine()
+        await engine.setStubbedProgressPhases([.downloading(fractionCompleted: 0.5)])
+        try await engine.prepare()
+        let ready = await engine.isReady
+        #expect(ready == true)
+    }
+}
+
+/// `@Sendable` コールバックから同期的に呼ばれる進捗フェーズをテスト側で収集するための小さな箱。
+private final class ProgressPhaseRecorder: @unchecked Sendable {
+    private(set) var phases: [TranscriptionEngineLoadPhase] = []
+    func record(_ phase: TranscriptionEngineLoadPhase) {
+        phases.append(phase)
+    }
 }
 
 // テスト用ヘルパー
 extension MockTranscriptionEngine {
     func setShouldThrowOnPrepare(_ value: Bool) {
         shouldThrowOnPrepare = value
+    }
+
+    func setStubbedProgressPhases(_ phases: [TranscriptionEngineLoadPhase]) {
+        stubbedProgressPhases = phases
     }
 }
 

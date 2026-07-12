@@ -29,9 +29,29 @@ actor WhisperKitEngine: TranscriptionEngine {
         self.modelVariant = modelVariant
     }
 
-    func prepare() async throws {
+    func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws {
         do {
-            whisperKit = try await WhisperKit(model: modelVariant)
+            // WhisperKit(model:) の既定初期化ではダウンロード中の進捗が一切コールバックされないため、
+            // ダウンロードとメモリロードを明示的に分離し、ダウンロードの進捗（バイト単位）を報告する。
+            let resolvedVariant: String
+            if let modelVariant {
+                resolvedVariant = modelVariant
+            } else {
+                resolvedVariant = await WhisperKit.recommendedRemoteModels().default
+            }
+
+            let modelFolder = try await WhisperKit.download(
+                variant: resolvedVariant,
+                progressCallback: { progress in
+                    onProgress(.downloading(fractionCompleted: progress.fractionCompleted))
+                }
+            )
+
+            onProgress(.loadingIntoMemory)
+
+            whisperKit = try await WhisperKit(
+                WhisperKitConfig(model: resolvedVariant, modelFolder: modelFolder.path, load: true)
+            )
             isReady = true
         } catch {
             throw TranscriptionEngineError.modelLoadFailed(underlying: error)

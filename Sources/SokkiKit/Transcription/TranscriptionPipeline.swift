@@ -26,6 +26,8 @@ final class TranscriptionPipeline {
     private(set) var isRunning: Bool = false
     private(set) var isLoading: Bool = false
     private(set) var loadingMessage: String = ""
+    /// モデルダウンロードの進捗（0...1）。ダウンロード段階以外や進捗が取得できない場合は nil。
+    private(set) var downloadProgress: Double? = nil
     private(set) var elapsedSeconds: Double = 0
 
     // Phase 2 で実装（SCStream 連携後に有効化）
@@ -62,9 +64,22 @@ final class TranscriptionPipeline {
 
         if await !transcriptionEngine.isReady {
             isLoading = true
-            loadingMessage = "WhisperKit モデルをダウンロード・ロード中…\n初回は数分かかります"
-            defer { isLoading = false; loadingMessage = "" }
-            try await transcriptionEngine.prepare()
+            loadingMessage = "WhisperKit モデルをダウンロード中…\n初回は数分かかります"
+            downloadProgress = 0
+            defer { isLoading = false; loadingMessage = ""; downloadProgress = nil }
+            try await transcriptionEngine.prepare(onProgress: { [weak self] phase in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    switch phase {
+                    case .downloading(let fractionCompleted):
+                        self.downloadProgress = fractionCompleted
+                        self.loadingMessage = "WhisperKit モデルをダウンロード中…"
+                    case .loadingIntoMemory:
+                        self.downloadProgress = nil
+                        self.loadingMessage = "モデルを読み込み中…"
+                    }
+                }
+            })
         }
 
         let title = sessionTitle.isEmpty
@@ -150,6 +165,7 @@ final class TranscriptionPipeline {
         isRunning: Bool = false,
         isLoading: Bool = false,
         loadingMessage: String = "",
+        downloadProgress: Double? = nil,
         elapsedSeconds: Double = 0,
         confirmedSegments: [TranscriptSegmentViewModel] = [],
         hypothesisText: String = ""
@@ -157,6 +173,7 @@ final class TranscriptionPipeline {
         self.isRunning = isRunning
         self.isLoading = isLoading
         self.loadingMessage = loadingMessage
+        self.downloadProgress = downloadProgress
         self.elapsedSeconds = elapsedSeconds
         self.confirmedSegments = confirmedSegments
         self.hypothesisText = hypothesisText
