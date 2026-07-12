@@ -144,6 +144,86 @@ struct SpeakerProfileStoreTests {
         #expect(afterResolve.first?.embeddingCount == 1) // EMA 更新ではなく新規作成である証跡
     }
 
+    // MARK: - TASK-30: SpeakerProfileView UI（名前編集・声紋削除）で使う永続化・参照整合の検証
+
+    @Test("rename は永続化され、別 ModelContext から再取得しても反映されている（インメモリ）")
+    func renamePersistsAcrossContextsInMemory() async throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(
+            for: SessionModel.self, SegmentModel.self, SpeakerProfileModel.self, AppSettingsModel.self,
+            configurations: config
+        )
+        // store には専用の ModelContext を渡す（actor 境界を越えて同一インスタンスを
+        // 使い回さない。既存の resolvesAcrossStoreReopen と同じ流儀）。
+        let store = SpeakerProfileStore(modelContext: ModelContext(container))
+
+        let embedding = makeNormalizedEmbedding(seed: 5.0)
+        _ = try await store.resolveProfiles(from: makeResult([("S1", 0, 5, embedding)]))
+
+        let readContext = ModelContext(container)
+        let before = try #require(readContext.fetch(FetchDescriptor<SpeakerProfileModel>()).first)
+        let profileID = before.id
+        #expect(before.displayName != "田中 太郎") // rename 前は自動命名（「話者 N」）であること
+
+        try await store.rename(profileID: profileID, to: "田中 太郎")
+
+        // 同一 ModelContainer に対する別 ModelContext から再取得しても反映されていること
+        let otherContext = ModelContext(container)
+        let renamed = try otherContext.fetch(FetchDescriptor<SpeakerProfileModel>(
+            predicate: #Predicate { $0.id == profileID }
+        )).first
+        #expect(renamed?.displayName == "田中 太郎")
+    }
+
+    @Test("プロファイル削除時、紐づくセグメントは残り speakerProfile 参照が nil になる（dangling 参照にならない）")
+    func deletingProfileNullifiesSegmentReference() async throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(
+            for: SessionModel.self, SegmentModel.self, SpeakerProfileModel.self, AppSettingsModel.self,
+            configurations: config
+        )
+        let store = SpeakerProfileStore(modelContext: ModelContext(container))
+
+        let embedding = makeNormalizedEmbedding(seed: 42.0)
+        _ = try await store.resolveProfiles(from: makeResult([("S1", 0, 5, embedding)]))
+
+        // このプロファイルに紐づくセグメント（発話記録）を作成して保存する。
+        // store の内部 ModelContext とは別インスタンスを使い、actor 境界を越えて共有しない。
+        let setupContext = ModelContext(container)
+        let profile = try #require(setupContext.fetch(FetchDescriptor<SpeakerProfileModel>()).first)
+        let profileID = profile.id
+
+        let session = SessionModel(title: "テスト", audioFilePath: "", captureMode: "mic")
+        let segment = SegmentModel(start: 0, end: 3, text: "こんにちは")
+        segment.speakerProfile = profile
+        session.segments.append(segment)
+        setupContext.insert(session)
+        try setupContext.save()
+        let segmentID = segment.id
+
+        // 削除前提として、確かにセグメントがこのプロファイルへ紐づいていることを確認する
+        // （nullify を検証したことにするための前提が崩れていないかのガード）。
+        let linkedBeforeDelete = try setupContext.fetch(FetchDescriptor<SegmentModel>(
+            predicate: #Predicate { $0.id == segmentID }
+        )).first
+        #expect(linkedBeforeDelete?.speakerProfile?.id == profileID)
+
+        try await store.deleteProfile(profileID)
+
+        // プロファイル自体は削除される
+        let verifyContext = ModelContext(container)
+        let remainingProfiles = try verifyContext.fetch(FetchDescriptor<SpeakerProfileModel>())
+        #expect(remainingProfiles.isEmpty)
+
+        // セグメントは削除されず残り、speakerProfile 参照は nil になっている（dangling 参照にならない）
+        let segments = try verifyContext.fetch(FetchDescriptor<SegmentModel>(
+            predicate: #Predicate { $0.id == segmentID }
+        ))
+        #expect(segments.count == 1)
+        #expect(segments.first?.speakerProfile == nil)
+        #expect(segments.first?.text == "こんにちは")
+    }
+
     @Test("EMA は既定 alpha=0.1 で更新され、更新後の embeddingCount / lastSeenAt が進む")
     func emaAlphaMatchesSpecAndMetadataAdvances() throws {
         let base: [Float] = l2Normalize(Array(repeating: Float(1), count: 4))
