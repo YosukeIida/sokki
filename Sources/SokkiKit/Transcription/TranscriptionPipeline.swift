@@ -34,9 +34,11 @@ final class TranscriptionPipeline {
     /// 文字起こしの最終処理でエラーが起きた際の非致命的な通知メッセージ（P2）。
     private(set) var transcriptionNoticeMessage: String? = nil
 
-    // Phase 2 で実装（SCStream 連携後に有効化）
-    // var micLevelStream:    AsyncStream<Float> { ... }
-    // var systemLevelStream: AsyncStream<Float> { ... }
+    /// マイク／システムの実レベル（dBFS RMS、-60...0）。WaveformView / LevelMeterView へ供給する（TASK-13）。
+    /// `captureManager` は `start` のたびにストリームを作り直す（AsyncStream は使い捨て）ため、
+    /// `start()` 完了時に最新のストリームへ差し替える。
+    private(set) var micLevelStream: AsyncStream<Float> = AsyncStream { $0.finish() }
+    private(set) var systemLevelStream: AsyncStream<Float> = AsyncStream { $0.finish() }
 
     private let captureManager: AudioCaptureManager
     private let transcriptionEngine: any TranscriptionEngine
@@ -98,6 +100,10 @@ final class TranscriptionPipeline {
         let audioURL = await sessionManager.audioURL(forSessionID: sessionID)
         try await captureManager.startCapture(mode: mode, outputURL: audioURL)
         recordingSaveErrorMessage = await captureManager.recordingSaveError.map(makeSaveErrorMessage)
+
+        // このセッション用に作り直された最新のレベルストリームへ差し替える（TASK-13）。
+        micLevelStream = await captureManager.micLevelStream
+        systemLevelStream = await captureManager.systemLevelStream
 
         isRunning = true
         elapsedSeconds = 0

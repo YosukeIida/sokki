@@ -128,6 +128,36 @@ struct TranscriptionPipelineCaptureModeTests {
         await cleanupAudioFiles(sessionManager)
     }
 
+    @Test(".both: micLevelStream / systemLevelStream が UI 配線用に独立して流れる（TASK-13）")
+    func bothLevelStreamsFlowIndependentlyForUI() async throws {
+        let container = try makeContainer()
+        let systemTap = MockSystemAudioTap()
+        let micTap = MockMicrophoneCapture()
+        let engine = MockTranscriptionEngine()
+        let (pipeline, sessionManager) = makePipeline(
+            systemTap: systemTap, micTap: micTap, engine: engine, container: container
+        )
+
+        try await pipeline.start(mode: .both, sessionTitle: "level-stream-test")
+
+        var micIterator = pipeline.micLevelStream.makeAsyncIterator()
+        var systemIterator = pipeline.systemLevelStream.makeAsyncIterator()
+
+        micTap.send(Array(repeating: 0.4, count: 160))
+        systemTap.send(Array(repeating: 0.1, count: 160))
+
+        let micLevel = try #require(await micIterator.next())
+        let systemLevel = try #require(await systemIterator.next())
+
+        #expect(micLevel > -60 && micLevel <= 0)
+        #expect(systemLevel > -60 && systemLevel <= 0)
+        // 振幅が異なるサンプルを流したので、独立配信であればレベル値も異なる。
+        #expect(micLevel != systemLevel)
+
+        try await pipeline.stop()
+        await cleanupAudioFiles(sessionManager)
+    }
+
     @Test("回帰 .systemOnly: system ストリームのみ購読し flush が完了する")
     func systemOnlyRegression() async throws {
         let container = try makeContainer()

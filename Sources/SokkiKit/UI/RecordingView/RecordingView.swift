@@ -4,6 +4,7 @@ struct RecordingView: View {
     @State private var captureMode: AudioCaptureManager.CaptureMode = .micOnly
     @State private var errorMessage: String? = nil
     @Environment(AppDependencyContainer.self) private var deps
+    @Environment(\.sokkiTokens) private var tokens
     private var pipeline: TranscriptionPipeline { deps.pipeline }
 
     var body: some View {
@@ -14,6 +15,14 @@ struct RecordingView: View {
 
             Divider()
                 .padding(.top, 8)
+
+            if pipeline.isRunning {
+                levelMeterBand
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+
+                Divider()
+            }
 
             ZStack {
                 LiveTranscriptView(
@@ -85,6 +94,38 @@ struct RecordingView: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             .padding()
             Spacer()
+        }
+    }
+
+    /// mic=青 / system=赤の実レベルメーター（TASK-13）。captureMode に応じて表示するレーンを切り替える:
+    /// `.micOnly` はマイクのみ、`.systemOnly` はシステムのみ、`.both` は 2 本並べて両方表示する。
+    @ViewBuilder
+    private var levelMeterBand: some View {
+        switch captureMode {
+        case .micOnly:
+            levelMeterColumn(label: "マイク", stream: pipeline.micLevelStream, color: tokens.mic)
+        case .systemOnly:
+            levelMeterColumn(label: "システム", stream: pipeline.systemLevelStream, color: tokens.sys)
+        case .both:
+            HStack(spacing: 16) {
+                levelMeterColumn(label: "マイク", stream: pipeline.micLevelStream, color: tokens.mic)
+                levelMeterColumn(label: "システム", stream: pipeline.systemLevelStream, color: tokens.sys)
+            }
+        }
+    }
+
+    private func levelMeterColumn(label: String, stream: AsyncStream<Float>, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 7, height: 7)
+                Text(label)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(tokens.faint)
+            }
+            WaveformView(levelStream: stream, color: color)
+                .frame(height: 58)
         }
     }
 

@@ -159,6 +159,31 @@ struct BothModeCaptureTests {
         await manager.stopCapture()
     }
 
+    @Test("dBFS 統一: 同一サンプルなら mic/system は同じレベル値を返す（rmsLevel 経路の一本化を固定・TASK-13）")
+    func micAndSystemProduceSameLevelForSameInput() async throws {
+        let systemMock = MockSystemAudioTap()
+        let micMock = MockMicrophoneCapture()
+        let manager = AudioCaptureManager(systemTap: systemMock, microphone: micMock)
+
+        try await manager.startCapture(mode: .both)
+        let micLevels = await manager.micLevelStream
+        let systemLevels = await manager.systemLevelStream
+        var micIterator = micLevels.makeAsyncIterator()
+        var systemIterator = systemLevels.makeAsyncIterator()
+
+        let samples: [Float] = Array(repeating: 0.35, count: 200)
+        micMock.send(samples)
+        systemMock.send(samples)
+
+        let micLevel = try #require(await micIterator.next())
+        let systemLevel = try #require(await systemIterator.next())
+
+        #expect(micLevel == systemLevel)
+        #expect(micLevel == AudioSampleConversion.rmsLevel(samples))
+
+        await manager.stopCapture()
+    }
+
     @Test("2 ファイル別保存: mic と system が別ファイルに別内容で書かれる")
     func writesTwoSeparateFiles() async throws {
         let systemMock = MockSystemAudioTap()

@@ -1,6 +1,15 @@
 import SwiftUI
 
-// Phase 2 で実装予定: リアルタイム波形・レベルメーター
+/// dBFS（-60...0）を表示正規化（0...1）へ写像する純粋関数。
+/// WaveformView / LevelMeterView の高さ計算を一本化し、mic / system 双方の見た目の一貫性を保つ（TASK-13）。
+enum LevelMeterMath {
+    static func normalize(dBFS level: Float) -> CGFloat {
+        let normalized = (level + 60) / 60
+        return CGFloat(max(0, min(1, normalized)))
+    }
+}
+
+// mic=青 / system=赤の実レベルを表示するリアルタイム波形・レベルメーター（TASK-13）
 struct WaveformView: View {
     let levelStream: AsyncStream<Float>
     let color: Color
@@ -32,8 +41,7 @@ struct WaveformView: View {
     }
 
     private func barHeight(level: Float, maxHeight: CGFloat) -> CGFloat {
-        let normalized = (level + 60) / 60   // -60…0 → 0…1
-        return max(2, CGFloat(normalized) * maxHeight)
+        max(2, LevelMeterMath.normalize(dBFS: level) * maxHeight)
     }
 }
 
@@ -50,7 +58,7 @@ struct LevelMeterView: View {
                         .fill(.quaternary)
                     RoundedRectangle(cornerRadius: 3)
                         .fill(color)
-                        .frame(height: geo.size.height * CGFloat((level + 60) / 60))
+                        .frame(height: geo.size.height * LevelMeterMath.normalize(dBFS: level))
                 }
             }
             Text(label)
