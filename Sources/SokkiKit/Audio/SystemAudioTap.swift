@@ -6,8 +6,10 @@ import CoreAudio
 enum SystemAudioTapError: Error, Equatable {
     case alreadyStarted
     case processTapCreationFailed(OSStatus)
+    /// 既定システム出力デバイスの解決（デバイス取得または UID 読取）に失敗。
+    /// `defaultSystemOutputDeviceUID()` が両ステップを 1 メソッドに集約するため、
+    /// デバイス未検出と UID 読取失敗はこの 1 ケースに統合している。
     case defaultOutputDeviceUnavailable(OSStatus)
-    case outputDeviceUIDUnavailable(OSStatus)
     case tapStreamFormatUnavailable(OSStatus)
     case tapStreamFormatInvalid
     case aggregateDeviceCreationFailed(OSStatus)
