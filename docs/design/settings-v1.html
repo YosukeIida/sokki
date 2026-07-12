@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sokki — デザインモック: SettingsView v1</title>
+  <!--
+    トークン方針（docs/design/recording-view-v2.html からの流用。session-list-v1.html /
+    session-detail-v1.html / speaker-profile-v1.html と同一方針）:
+      再利用（同名・同値のまま）:
+        ページ全体: --page-bg, --ink, --ink-muted, --ink-faint, --accent, --warn, --ok,
+                    --border, --card, --sys-ui, --sys-mono
+        モック共通: --page-bg2, --spk-a, --spk-b, --spk-c（本画面では未使用だが他モックとの
+                    トークン一貫性のため定義のみ残す）
+        テーマ別（.dir-console / .dir-manuscript 内）:
+          --content-bg, --titlebar, --sidebar, --transcript-bg, --controls-bg, --seg-bg,
+          --line, --text, --muted, --faint, --accent, --accent-on, --good, --rec,
+          --mic, --sys, --trans-rail
+        コンポーネント: .win / .titlebar / .lights / .win-title / .layout / .sidebar /
+          .side-h / .nav / .segment（v2 の Mic/System/Both と同じ見た目。テーマ切替トグル・
+          「外観」ピッカーの2箇所に転用）/ .toggle / .sw（v2 の翻訳トグルを ON/OFF 双方向に
+          拡張して転用。詳細は下記）
+      新規トークンの追加: なし。
+        トグル OFF 状態の背景・スライダーの accent-color・セレクトのシェブロン等は
+        すべて既存トークン（--line, --accent 等）で表現している。
+      新規コンポーネントクラス（トークンではなく見た目のみ新規）:
+        .tabs, .tab-btn, .tab-panel, .form-section, .form-section-title, .form-row,
+        .form-row-label, .form-field, .field-label, .text-field, .select-wrap,
+        .select-field, .select-chevron, .stepper, .stepper-btn, .stepper-value,
+        .range-row, .range-field, .range-value, .sw.off（v2 の .sw は常時ON前提だったため
+        OFF 状態の見た目を追加）
+  -->
+  <style>
+    /* ========== Page shell（v2 と同一トークン） ========== */
+    :root {
+      --page-bg: #f5f4f0;
+      --ink: #1b1d21;
+      --ink-muted: #5a5f6a;
+      --ink-faint: #9aa0a8;
+      --accent: #2b4a78;
+      --warn: #c23b2c;
+      --ok: #3c7a50;
+      --border: #dddedd;
+      --card: #ffffff;
+      --sys-ui: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+      --sys-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--sys-ui);
+      background: var(--page-bg);
+      color: var(--ink);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page { max-width: 1040px; margin: 0 auto; padding: 60px 24px 120px; }
+
+    .header { margin-bottom: 40px; border-bottom: 1px solid var(--border); padding-bottom: 32px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; background: #e6ecf5; color: var(--accent); border: 1px solid #c9d6e8; padding: 4px 10px; border-radius: 5px; margin-bottom: 16px; }
+    h1 { font-size: clamp(26px, 5vw, 38px); line-height: 1.1; letter-spacing: -.025em; font-weight: 700; margin-bottom: 12px; }
+    .subtitle { font-size: 16px; color: var(--ink-muted); max-width: 72ch; margin-bottom: 20px; }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px; color: var(--ink-faint); }
+    .meta-row span b { color: var(--ink-muted); font-weight: 600; }
+
+    section { margin-bottom: 48px; }
+    h2 { font-size: 18px; font-weight: 680; letter-spacing: -.01em; margin-bottom: 4px; }
+    .section-sub { font-size: 14px; color: var(--ink-muted); margin-bottom: 18px; }
+
+    .callout { border-left: 3px solid var(--accent); background: #f0f4fa; padding: 14px 18px; border-radius: 0 8px 8px 0; font-size: 13.5px; color: var(--ink-muted); margin: 16px 0; }
+    .callout b { color: var(--ink); }
+    .callout ul { margin: 8px 0 0 18px; }
+    .callout li { margin-bottom: 4px; }
+
+    footer { border-top: 1px solid var(--border); padding-top: 24px; font-size: 13px; color: var(--ink-faint); }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ===================== モック共通トークン（v2 と同一） ===================== */
+    :root {
+      --page-bg2: #d9dce1;
+      --spk-a: #4c7fc0; --spk-b: #3e9d6a; --spk-c: #7c5cff;
+    }
+
+    .mock-wrap { overflow-x: auto; padding: 4px; }
+    .win { width: 880px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line);
+      background: var(--content-bg); box-shadow: 0 24px 60px -24px rgba(20,22,30,.45), 0 2px 8px rgba(0,0,0,.08);
+      font-family: var(--sys-ui); color: var(--text); }
+    .titlebar { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--titlebar); border-bottom: 1px solid var(--line); }
+    .lights { display: flex; gap: 8px; } .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+    .lights .r { background: #ff5f57; } .lights .y { background: #febc2e; } .lights .g { background: #28c840; }
+    .win-title { font-size: 13px; color: var(--muted); font-weight: 540; } .win-title b { color: var(--text); font-weight: 600; }
+    .layout { display: grid; grid-template-columns: 196px 1fr; min-height: 560px; }
+    .sidebar { background: var(--sidebar); border-right: 1px solid var(--line); padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; }
+    .side-h { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 6px 10px 4px; font-weight: 600; }
+    .nav { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 7px; font-size: 13.5px; color: var(--text); }
+    .nav .ic { width: 17px; text-align: center; opacity: .85; }
+    .nav.active { background: var(--accent); color: var(--accent-on); font-weight: 560; } .nav.active .ic { opacity: 1; }
+    .nav.dim { color: var(--muted); }
+
+    .content { display: flex; flex-direction: column; min-width: 0; }
+    .content-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .content-top-title { font-size: 13px; font-weight: 620; color: var(--text); }
+
+    .mono { font-family: var(--sys-mono); font-variant-numeric: tabular-nums; }
+
+    /* セグメントコントロール（v2 の Mic/System/Both と同じ見た目。デモのテーマ切替と
+       画面内「外観」ピッカーの2箇所で使う） */
+    .segment { display: inline-flex; background: var(--seg-bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; }
+    .segment span { font-size: 12px; padding: 4px 11px; border-radius: 6px; color: var(--muted); font-weight: 520; cursor: pointer; user-select: none; }
+    .segment span:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .segment span.on { background: var(--accent); color: var(--accent-on); font-weight: 600; }
+    .segment.wide span { padding: 6px 18px; font-size: 12.5px; }
+
+    /* トグルスイッチ（v2 の .toggle/.sw を ON/OFF 双方向に拡張） */
+    .toggle-sw { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; user-select: none; }
+    .sw { width: 30px; height: 18px; border-radius: 999px; background: var(--accent); position: relative; flex: none; transition: background .12s ease; }
+    .sw::after { content:""; position: absolute; top: 2px; left: 14px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: left .12s ease; }
+    .sw.off { background: var(--line); }
+    .sw.off::after { left: 2px; }
+
+    /* ===================== タブ（TabView の見た目を再現） ===================== */
+    .tabs { display: flex; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--controls-bg); }
+    .tab-btn { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 16px; border-radius: 8px; font-size: 11px; font-weight: 540; color: var(--muted); cursor: pointer; user-select: none; border: none; background: transparent; font-family: var(--sys-ui); }
+    .tab-btn .tab-icon { font-size: 16px; line-height: 1; }
+    .tab-btn.active { background: var(--accent); color: var(--accent-on); }
+    .tab-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    .tab-panel { padding: 20px 24px; }
+
+    /* ===================== フォーム（Form/Section の見た目を再現） ===================== */
+    .form-section { max-width: 480px; margin-bottom: 26px; }
+    .form-section:last-child { margin-bottom: 0; }
+    .form-section-title { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 600; margin-bottom: 10px; }
+    .form-section-desc { font-size: 12.5px; color: var(--muted); margin: -4px 0 12px; line-height: 1.5; }
+
+    .form-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+    .form-row:last-child { border-bottom: none; }
+    .form-row-label { font-size: 13px; color: var(--text); }
+
+    .form-field { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; }
+    .field-label { font-size: 12px; color: var(--muted); }
+    .text-field { font-family: var(--sys-ui); font-size: 13px; color: var(--text); background: var(--content-bg); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; width: 100%; }
+    .text-field::placeholder { color: var(--faint); }
+    .text-field:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; border-color: var(--accent); }
+
+    .select-wrap { position: relative; flex: none; }
+    .select-field { appearance: none; -webkit-appearance: none; -moz-appearance: none; font-family: var(--sys-ui); font-size: 12.5px; color: var(--text); background: var(--content-bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 28px 6px 10px; min-width: 220px; cursor: pointer; }
+    .select-chevron { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); font-size: 10px; color: var(--faint); pointer-events: none; }
+
+    .stepper { display: flex; align-items: center; gap: 10px; }
+    .stepper-btn { width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--line); background: var(--content-bg); color: var(--text); font-size: 13px; cursor: pointer; display: grid; place-items: center; line-height: 1; }
+    .stepper-btn:disabled { opacity: .35; cursor: default; }
+    .stepper-value { font-size: 12.5px; color: var(--text); min-width: 42px; text-align: center; }
+
+    .range-row { display: flex; flex-direction: column; gap: 8px; padding: 11px 0; }
+    .range-field { display: flex; align-items: center; gap: 10px; }
+    .range-field input[type="range"] { flex: 1; accent-color: var(--accent); }
+    .range-value { font-size: 12px; color: var(--muted); width: 40px; text-align: right; }
+
+    /* ===================== テーマ（v2 と同一トークン値） ===================== */
+    .dir-console {
+      --content-bg: #1a1e24; --titlebar: #1e232a; --sidebar: #171b20; --transcript-bg: #16191e; --controls-bg: #171b20; --seg-bg: #13161b;
+      --line: #2a2f37; --text: #e3e6eb; --muted: #939ba7; --faint: #626a76;
+      --accent: #35a597; --accent-on: #042420; --good: #4fb48f; --rec: #d9534c;
+      --mic: #6e96c9; --sys: #c27c6e; --trans-rail: #2e7e74;
+    }
+    .dir-manuscript {
+      --content-bg: #fafaf8; --titlebar: #eeefec; --sidebar: #f1f2f0; --transcript-bg: #fbfbf9; --controls-bg: #f1f2f0; --seg-bg: #e9eae6;
+      --line: #e1e3df; --text: #21242b; --muted: #5e6571; --faint: #9aa0a6;
+      --accent: #2b4a78; --accent-on: #ffffff; --good: #3c7a50; --rec: #c23b2c;
+      --mic: #486593; --sys: #a06b50; --trans-rail: #c8d0dc;
+    }
+
+    /* ===================== プレビュー操作パネル ===================== */
+    .demo-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-bottom: 16px; padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+    .demo-controls .group { display: flex; align-items: center; gap: 8px; }
+    .demo-controls .group-label { font-size: 12px; color: var(--ink-faint); font-weight: 600; }
+    .demo-controls .segment { --seg-bg: #eef0ee; --line: #dddedd; --accent: #2b4a78; --accent-on: #fff; --muted: #5a5f6a; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ===== HEADER ===== -->
+  <header class="header">
+    <div class="badge">デザインモック · v1</div>
+    <h1>sokki — SettingsView</h1>
+    <p class="subtitle">
+      設定画面のモックです。<a href="recording-view-v2.html">RecordingView v2</a> のトークンを流用し、現行 <code>SettingsView.swift</code> の3タブ（文字起こし・話者分離・LLM）に加えて、並行実装中の TASK-9.2（外観の自動追従＋手動切替）に対応する「外観」タブを追加しています。「外観」の システム / ライト / ダーク を切り替えると、実際にこのモックのテーマが変わります。
+    </p>
+    <div class="meta-row">
+      <span><b>バージョン:</b> v1</span>
+      <span><b>対象画面:</b> SettingsView（設定）</span>
+      <span><b>フェーズ:</b> Phase 1 MVP — backlog TASK-9.3 / Issue #60</span>
+      <span><b>プラットフォーム:</b> macOS 15+ / Apple Silicon</span>
+    </div>
+  </header>
+
+  <!-- ===== MOCKUP ===== -->
+  <section>
+    <h2>UI モック — SettingsView（インタラクティブ）</h2>
+    <p class="section-sub">上部のタブで設定カテゴリを切り替えられます。「外観」タブのシステム/ライト/ダークは実際にウィンドウのテーマへ反映されます（システム選択時は下の「テーマ」トグルに追従）。</p>
+
+    <div class="demo-controls">
+      <div class="group">
+        <span class="group-label">テーマ（システム外観の代用）</span>
+        <div class="segment" data-group="theme">
+          <span class="on" data-value="manuscript" role="button" tabindex="0">☀️ Manuscript</span>
+          <span data-value="console" role="button" tabindex="0">🌙 Console</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mock-wrap">
+      <div class="win dir-manuscript" data-win>
+        <div class="titlebar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="win-title"><b>sokki</b> — 設定</span></div>
+        <div class="layout">
+          <aside class="sidebar">
+            <div class="side-h">sokki</div>
+            <div class="nav"><span class="ic">●</span> 録音</div>
+            <div class="nav"><span class="ic">≡</span> 録音一覧</div>
+            <div class="nav"><span class="ic">◑</span> 話者プロファイル</div>
+            <div style="flex:1"></div>
+            <div class="nav active"><span class="ic">⚙</span> 設定</div>
+          </aside>
+          <main class="content">
+            <div class="content-top">
+              <span class="content-top-title">設定</span>
+            </div>
+
+            <div class="tabs" data-tabs>
+              <button class="tab-btn active" data-tab="panel-appearance"><span class="tab-icon">🌗</span>外観</button>
+              <button class="tab-btn" data-tab="panel-transcription"><span class="tab-icon">〰️</span>文字起こし</button>
+              <button class="tab-btn" data-tab="panel-speaker"><span class="tab-icon">👥</span>話者分離</button>
+              <button class="tab-btn" data-tab="panel-llm"><span class="tab-icon">🧠</span>LLM</button>
+            </div>
+
+            <!-- 外観 -->
+            <div class="tab-panel" id="panel-appearance">
+              <div class="form-section">
+                <div class="form-section-title">外観</div>
+                <div class="form-section-desc">アプリの配色をシステム設定に追従させるか、手動で固定するかを選べます。</div>
+                <div class="form-row">
+                  <span class="form-row-label">表示モード</span>
+                  <div class="segment wide" data-group="appearance">
+                    <span class="on" data-value="system" role="button" tabindex="0">システム</span>
+                    <span data-value="light" role="button" tabindex="0">ライト</span>
+                    <span data-value="dark" role="button" tabindex="0">ダーク</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 文字起こし -->
+            <div class="tab-panel" id="panel-transcription" hidden>
+              <div class="form-section">
+                <div class="form-section-title">エンジン</div>
+                <div class="form-row">
+                  <span class="form-row-label">Whisper モデル</span>
+                  <div class="select-wrap">
+                    <select class="select-field">
+                      <option value="">自動（推奨）</option>
+                      <option value="openai_whisper-large-v3_turbo">large-v3-turbo</option>
+                      <option value="openai_whisper-large-v3">large-v3</option>
+                      <option value="openai_whisper-large-v3-v20240930_turbo">large-v3-v20240930-turbo</option>
+                      <option value="openai_whisper-medium">medium</option>
+                      <option value="openai_whisper-small">small</option>
+                    </select>
+                    <span class="select-chevron">⌄</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 話者分離 -->
+            <div class="tab-panel" id="panel-speaker" hidden>
+              <div class="form-section">
+                <div class="form-section-title">話者分離</div>
+                <div class="form-row">
+                  <span class="form-row-label">話者分離を有効にする</span>
+                  <label class="toggle-sw" data-diarization-toggle>
+                    <span class="sw"></span>
+                  </label>
+                </div>
+                <div class="form-row">
+                  <span class="form-row-label">話者数</span>
+                  <div class="stepper" data-stepper>
+                    <button class="stepper-btn" data-step="-1" type="button">−</button>
+                    <span class="stepper-value mono" data-stepper-value>自動</span>
+                    <button class="stepper-btn" data-step="1" type="button">＋</button>
+                  </div>
+                </div>
+              </div>
+              <div class="form-section">
+                <div class="form-section-title">声紋照合</div>
+                <div class="range-row">
+                  <span class="form-row-label">照合閾値</span>
+                  <div class="range-field">
+                    <input type="range" min="0.6" max="0.95" step="0.01" value="0.82" data-range>
+                    <span class="range-value mono" data-range-value>0.82</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- LLM -->
+            <div class="tab-panel" id="panel-llm" hidden>
+              <div class="form-section">
+                <div class="form-section-title">OpenAI 互換エンドポイント</div>
+                <label class="form-field">
+                  <span class="field-label">Base URL</span>
+                  <input class="text-field" type="text" placeholder="https://api.example.com/v1">
+                </label>
+                <label class="form-field">
+                  <span class="field-label">API Key（不要な場合は空欄）</span>
+                  <input class="text-field" type="text" placeholder="sk-...">
+                </label>
+                <label class="form-field">
+                  <span class="field-label">モデル名</span>
+                  <input class="text-field" type="text" placeholder="gpt-4o-mini">
+                </label>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== DESIGN NOTES ===== -->
+  <section>
+    <h2>デザイン上の判断メモ</h2>
+    <div class="callout">
+      <b>迷った点・意図的な変更点：</b>
+      <ul>
+        <li><b>ウィンドウ枠への統合：</b>現行実装は <code>SettingsView</code> を独立した 480×320 の <code>TabView</code> ウィンドウとして表示するが、本タスクの要件（「ウィンドウ枠・サイドバー構成は session-list-v1 と同一」）に従い、他画面と同じサイドバー付きシェル内のコンテンツとして再構成した。実装が別ウィンドウのままか、他画面と統一されたペインになるかは TASK-9.2 側の設計判断に委ねる。</li>
+        <li><b>「外観」タブの追加と並び順：</b>要件により新規追加。macOS 標準の設定画面の慣習（外観・一般系の設定を先頭に置く）に倣い、タブの先頭に配置した。現行実装の3タブ（文字起こし・話者分離・LLM）は既存の並びのまま維持している。</li>
+        <li><b>「外観」ピッカーを実際に機能させた：</b>システム/ライト/ダークを切り替えると、このモック自体のテーマ（.dir-manuscript / .dir-console）が実際に変わる。「システム」を選んだ場合は、ページ上部の「テーマ」トグル（システムの現在の外観設定を模したもの）に追従する。これにより <code>preferredColorScheme</code> + システム追従の実際の挙動を体験できるようにした。</li>
+        <li><b>タブアイコン：</b>現行 SwiftUI 実装の <code>Label</code> に使われている SF Symbols（<code>waveform</code> / <code>person.2</code> / <code>brain</code>）に対応する絵文字（〰️ / 👥 / 🧠）を採用し、実装との対応関係が分かるようにした。「外観」用に🌗を追加。</li>
+        <li><b>話者ラベルのロケール切替トグルは省略：</b>他3画面と異なり、本画面には話者名や話者ラベル文字列が一切表示されない（「話者数」はあくまで人数の数値設定）ため、ja/en 切替トグルは設置していない。</li>
+        <li><b>トグルスイッチの ON/OFF 双方向対応：</b>RecordingView v2 の <code>.toggle/.sw</code> は「常時 ON（翻訳オン）」の1状態のみを表現していたが、本画面の「話者分離を有効にする」は実際に ON/OFF を行き来する必要があるため <code>.sw.off</code> 修飾クラスを追加した。新規カスタムプロパティではなく、既存の <code>--line</code>（OFF背景）をそのまま使っている。</li>
+        <li><b>Stepper・Slider の値表示：</b>現行実装の文言「話者数: 自動 / N人」「%.2f 表示の照合閾値」をそのまま踏襲し、クリック・ドラッグで実際に値が更新されるようにした（0〜10人・0.60〜0.95の範囲も実装に合わせた）。</li>
+        <li>将来項目（Phase 2.5 の翻訳設定等）は本モックの対象外とし、含めていない。</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <p>sokki プロジェクト · <a href="recording-view-v2.html">RecordingView v2</a> · <a href="session-list-v1.html">SessionListView v1</a> · <a href="session-detail-v1.html">SessionDetailView v1</a> · <a href="speaker-profile-v1.html">SpeakerProfileView v1</a> · <a href="../../spec.md">アーキテクチャ仕様（spec.md）</a> · <a href="../../requirements.md">要件定義（requirements.md）</a></p>
+    <p style="margin-top:8px;">このファイルは <code>docs/design/settings-v1.html</code> に配置されています。ブラウザで直接開いてください。</p>
+  </footer>
+
+</div>
+
+<script>
+  document.querySelectorAll(".win").forEach(win => {
+    /* ===== テーマ状態: 「テーマ」デモトグル（システム外観の代用） × 画面内「外観」ピッカー ===== */
+    let outerTheme = "manuscript";
+    let appearance = "system";
+
+    function applyTheme() {
+      const effective = appearance === "system" ? outerTheme : (appearance === "light" ? "manuscript" : "console");
+      win.classList.remove("dir-manuscript", "dir-console");
+      win.classList.add(effective === "console" ? "dir-console" : "dir-manuscript");
+    }
+
+    win.querySelectorAll(".segment[data-group]").forEach(group => {
+      const spans = group.querySelectorAll("span");
+      const select = (sp) => {
+        spans.forEach(x => x.classList.remove("on"));
+        sp.classList.add("on");
+        const value = sp.dataset.value;
+        if (group.dataset.group === "appearance") {
+          appearance = value;
+          applyTheme();
+        }
+      };
+      spans.forEach(sp => {
+        sp.addEventListener("click", () => select(sp));
+        sp.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(sp); }
+        });
+      });
+    });
+
+    /* ===== タブ切替 ===== */
+    const tabs = win.querySelectorAll("[data-tabs] .tab-btn");
+    tabs.forEach(btn => {
+      btn.addEventListener("click", () => {
+        tabs.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        win.querySelectorAll(".tab-panel").forEach(p => { p.hidden = true; });
+        win.querySelector(`#${btn.dataset.tab}`).hidden = false;
+      });
+    });
+
+    /* ===== 話者分離トグル ===== */
+    const diarizationToggle = win.querySelector("[data-diarization-toggle]");
+    if (diarizationToggle) {
+      const sw = diarizationToggle.querySelector(".sw");
+      let enabled = true;
+      diarizationToggle.addEventListener("click", () => {
+        enabled = !enabled;
+        sw.classList.toggle("off", !enabled);
+      });
+    }
+
+    /* ===== 話者数ステッパー ===== */
+    const stepper = win.querySelector("[data-stepper]");
+    if (stepper) {
+      const valueEl = stepper.querySelector("[data-stepper-value]");
+      let n = 0;
+      const render = () => { valueEl.textContent = n === 0 ? "自動" : `${n}人`; };
+      stepper.querySelectorAll("[data-step]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          n = Math.min(10, Math.max(0, n + Number(btn.dataset.step)));
+          render();
+        });
+      });
+      render();
+    }
+
+    /* ===== 照合閾値スライダー ===== */
+    const range = win.querySelector("[data-range]");
+    if (range) {
+      const valueEl = win.querySelector("[data-range-value]");
+      range.addEventListener("input", () => {
+        valueEl.textContent = Number(range.value).toFixed(2);
+      });
+    }
+
+    /* ===== 「テーマ」デモトグル（システム外観の代用） ===== */
+    const themeGroup = document.querySelector('.demo-controls .segment[data-group="theme"]');
+    if (themeGroup) {
+      const spans = themeGroup.querySelectorAll("span");
+      spans.forEach(sp => {
+        const handler = () => {
+          spans.forEach(x => x.classList.remove("on"));
+          sp.classList.add("on");
+          outerTheme = sp.dataset.value;
+          applyTheme();
+        };
+        sp.addEventListener("click", handler);
+        sp.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handler(); }
+        });
+      });
+    }
+
+    applyTheme();
+  });
+</script>
+
+</body>
+</html>

@@ -46,6 +46,12 @@ actor SessionManager {
         try modelContext.save()
     }
 
+    /// セッションの録音ファイル URL（録音書き出し先・P1-1）。
+    func audioURL(forSessionID sessionID: PersistentIdentifier) -> URL? {
+        guard let session = modelContext.model(for: sessionID) as? SessionModel else { return nil }
+        return URL(fileURLWithPath: session.audioFilePath)
+    }
+
     func allSessions() throws -> [SessionModel] {
         let descriptor = FetchDescriptor<SessionModel>(
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
@@ -73,16 +79,28 @@ actor SessionManager {
             predicate: #Predicate { $0.id == sessionID }
         )
         guard let session = try modelContext.fetch(descriptor).first else { return }
+        if let audioFileURL = session.audioFileURL {
+            try? FileManager.default.removeItem(at: audioFileURL)
+        }
         modelContext.delete(session)
         try modelContext.save()
     }
 
     private func makeAudioFilePath(title: String) -> String {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first!
-            .appendingPathComponent("sokki/recordings", isDirectory: true)
+        let dir = Self.recordingsBaseDirectory()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let filename = "\(title)_\(UUID().uuidString.prefix(8)).m4a"
         return dir.appendingPathComponent(filename).path
+    }
+
+    /// XCUITest が production の録音を汚染しないよう、環境変数 `SOKKI_UITEST_RECORDINGS_DIR`
+    /// が設定されている場合はそのディレクトリを保存先として使う。
+    private static func recordingsBaseDirectory() -> URL {
+        if let override = ProcessInfo.processInfo.environment["SOKKI_UITEST_RECORDINGS_DIR"] {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first!
+            .appendingPathComponent("sokki/recordings", isDirectory: true)
     }
 }

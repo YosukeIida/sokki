@@ -24,11 +24,15 @@ actor MockTranscriptionEngine: TranscriptionEngine {
     var prepareCallCount = 0
     var transcribeCallCount = 0
     var stubbedSegments: [any TranscriptionSegment] = [MockSegment(text: "テストテキスト")]
+    var stubbedProgressPhases: [TranscriptionEngineLoadPhase] = []
     var shouldThrowOnPrepare = false
     var shouldThrowOnTranscribe = false
 
-    func prepare() async throws {
+    func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws {
         prepareCallCount += 1
+        for phase in stubbedProgressPhases {
+            onProgress(phase)
+        }
         if shouldThrowOnPrepare {
             throw TranscriptionEngineError.modelLoadFailed(underlying: NSError(domain: "mock", code: -1))
         }

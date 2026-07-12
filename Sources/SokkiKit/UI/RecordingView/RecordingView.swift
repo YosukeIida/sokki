@@ -26,7 +26,9 @@ struct RecordingView: View {
                 }
 
                 if let err = errorMessage {
-                    errorBanner(err)
+                    errorBanner(err) { errorMessage = nil }
+                } else if let saveErr = pipeline.recordingSaveErrorMessage {
+                    errorBanner(saveErr) { pipeline.dismissRecordingSaveError() }
                 }
             }
             .frame(maxHeight: .infinity)
@@ -40,8 +42,18 @@ struct RecordingView: View {
 
     private var loadingOverlay: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .scaleEffect(1.5)
+            if let progress = pipeline.downloadProgress {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 220)
+                Text("\(Int((progress * 100).rounded()))%")
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            } else {
+                ProgressView()
+                    .scaleEffect(1.5)
+            }
             Text(pipeline.loadingMessage)
                 .font(.callout)
                 .multilineTextAlignment(.center)
@@ -52,7 +64,7 @@ struct RecordingView: View {
         .shadow(radius: 8)
     }
 
-    private func errorBanner(_ message: String) -> some View {
+    private func errorBanner(_ message: String, onDismiss: @escaping () -> Void) -> some View {
         VStack {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -61,7 +73,7 @@ struct RecordingView: View {
                     .font(.callout)
                     .foregroundStyle(.primary)
                 Spacer()
-                Button { errorMessage = nil } label: {
+                Button(action: onDismiss) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
@@ -151,6 +163,7 @@ struct RecordingView: View {
                     .foregroundStyle(pipeline.isRunning ? .red : .primary)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("recordStopButton")
 
             Spacer()
         }
@@ -170,9 +183,15 @@ struct RecordingView: View {
         .frame(width: 600, height: 500)
 }
 
-#Preview("ローディング中") {
+#Preview("ローディング中（ダウンロード進捗あり）") {
     RecordingView()
         .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.loading()))
+        .frame(width: 600, height: 500)
+}
+
+#Preview("ローディング中（メモリロード・進捗なし）") {
+    RecordingView()
+        .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.loadingIntoMemory()))
         .frame(width: 600, height: 500)
 }
 

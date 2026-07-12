@@ -8,14 +8,36 @@ public protocol TranscriptionSegment: Sendable {
     var avgLogProb: Float { get }
 }
 
+/// モデル準備（ダウンロード〜メモリロード）の進捗フェーズ。
+public enum TranscriptionEngineLoadPhase: Sendable, Equatable {
+    /// モデルファイルのダウンロード中。`fractionCompleted` は 0...1。
+    case downloading(fractionCompleted: Double)
+    /// ダウンロード済みモデルを CoreML にロード中（バイト単位の進捗は取得できない）。
+    case loadingIntoMemory
+}
+
 public protocol TranscriptionEngine: Actor {
     func prepare() async throws
+    func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws
     func transcribe(audioArray: [Float]) async throws -> [any TranscriptionSegment]
     func transcribeStream(
         audioChunks: AsyncStream<AudioChunk>
     ) -> AsyncThrowingStream<any TranscriptionSegment, Error>
     var isReady: Bool { get }
     var modelIdentifier: String { get }
+}
+
+// `prepare()` と `prepare(onProgress:)` は互いのデフォルト実装を提供する。
+// 適合型はどちらか一方だけを実装すればよい（両方未実装のままだと無限再帰になる）。
+// 旧シグネチャ `prepare()` だけを実装した既存の外部 conformer のソース互換性を保つため。
+public extension TranscriptionEngine {
+    func prepare() async throws {
+        try await prepare(onProgress: { _ in })
+    }
+
+    func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws {
+        try await prepare()
+    }
 }
 
 enum TranscriptionEngineError: Error {

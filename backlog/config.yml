@@ -1,0 +1,17 @@
+project_name: "sokki"
+default_status: "To Do"
+statuses: ["To Do", "In Progress", "Done"]
+labels: []
+definition_of_done: ["swift build が通る", "swift test で本変更起因の失敗がない（既知の Snapshot 失敗 4 件は除外可）", "project.yml 変更時は xcodegen generate を実行し entitlements の 3 権限（audio-input / screen-capture / network.client）が保持されていることを確認する", "対応する GitHub Issue がある場合は完了時に gh issue close でクローズして backlog と同期する"]
+date_format: yyyy-mm-dd
+max_column_width: 20
+default_editor: "nano"
+auto_open_browser: true
+default_port: 6420
+remote_operations: true
+auto_commit: false
+filesystem_only: false
+bypass_git_hooks: false
+check_active_branches: true
+active_branch_days: 30
+task_prefix: "task"

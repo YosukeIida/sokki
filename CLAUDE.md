@@ -4,56 +4,43 @@ macOS 15+ ネイティブ音声文字起こしアプリ。xcodegen + Swift Packa
 
 ## 重要ドキュメント
 
-- `spec.md` — アーキテクチャ仕様書・設計判断ログ（D-1〜D-9）
-- `requirements.md` — 機能要件・非機能要件・GitHub Issues 計画
+- `spec.md` — アーキテクチャ仕様書・設計判断ログ（D-1〜D-17）
+- `requirements.md` — 機能要件・非機能要件
+- `docs/roadmap.md` — フェーズ構成・依存関係の設計スナップショット（タスク状態の正本は backlog）
 
 ## ビルド
 
 ```bash
 swift build              # CLI ビルド
-swift test               # テスト（20 件）
+swift test               # テスト（27 件。既知の Snapshot 失敗 4 件は macOS 26.2 の描画差）
 xcodegen generate        # sokki.xcodeproj を再生成（project.yml 変更後）
 open sokki.xcodeproj     # Xcode で開く
 ```
 
-## タスク管理（GitHub Issues）
+## タスク管理（Backlog.md が正本 / GitHub Issues は同期ミラー）
 
-**作業前に必ず Issues を確認する。**
+**作業前に必ず backlog を確認する。** 状態（To Do / In Progress / Done）・依存関係・完了基準は backlog（`backlog/`）が正本。GitHub Issues は対外向けミラーで、backlog に合わせて同期する。
 
-```bash
-# 未完了 Issues 一覧
-gh issue list --label "Phase1"
-
-# 特定 Issue の詳細
-gh issue view 3
-
-# 作業開始時（自分にアサイン）
-gh issue edit 3 --add-assignee "@me"
-
-# 完了時（クローズ + コメント）
-gh issue close 3 --comment "実装完了: <変更の概要>"
-```
-
-### 現在の優先順序
-
-1. **Issue #22** `[Design]` — claude.ai/design で各画面をデザイン（先行）
-2. **Issue #2** `[P1]` — 録音一覧・詳細画面の E2E 動作確認
-3. **Issue #3** `[P1]` — durationSeconds を停止後に更新
-4. **Issue #4** `[P1]` — 音声ファイルをディスクへ保存（.m4a）
-5. **Issue #5** `[P1]` — Markdown エクスポートの確認
-
-Phase 2 以降は `gh issue list --label "Phase2"` を参照。
-
-### Issue を新しく作る場合
+Claude Code からは backlog MCP サーバのツール（`task_list` / `task_view` / `task_create` / `task_edit`）を使う。CLI の場合:
 
 ```bash
-gh issue create \
-  --title "[P1] タイトル" \
-  --label "Phase1" \
-  --body "## 概要\n...\n\n## 完了基準\n- ..."
+backlog task list --plain     # タスク一覧
+backlog task view 6 --plain   # タスク詳細
+backlog board                 # ボード表示
 ```
 
-ラベル: `Phase1` / `Phase2` / `Phase3` / `Phase4` / `Phase5` / `design` / `bug` / `test`
+### GitHub Issues との同期ルール
+
+- 各 backlog タスクの references に対応 Issue の URL を記録してある
+- **タスク完了時**: backlog を Done にし、対応 Issue を `gh issue close <n> --comment "実装完了: <概要>"` でクローズする
+- **タスク新規作成時**: backlog に作成し、ミラー Issue も `gh issue create` で作成して相互参照する（Issue 本文に backlog TASK-ID、backlog references に Issue URL）
+- 乖離を見つけたら backlog に合わせて Issues を直す
+
+ラベル: `Phase1` / `Phase2` / `Phase2.5` / `Phase3` / `Phase4` / `Phase5` / `Phase6` / `design` / `bug` / `test` / `infra`
+
+### 現在の優先
+
+backlog の High priority を参照（現在: **TASK-6** = P1-3 録音一覧・詳細の E2E 動作確認 / Issue #25）。フェーズ構成と依存関係の設計根拠は `docs/roadmap.md`（スナップショット。タスク状態はそこでは更新しない）。
 
 ## アーキテクチャ（重要）
 
@@ -92,6 +79,6 @@ xcodegen generate   # xcodeproj を再生成
 - macOS 15+ / Apple Silicon 専用
 - `argmax-oss-swift` v1.0 に WhisperKit と SpeakerKit が同梱
 - SwiftData モデルは `[Float]` を直サポートしないため `Data` 変換で保存（`SpeakerProfileModel.embeddingData`）
-- 音声キャプチャは Phase 1 が `AVAudioEngine`、Phase 2 以降が `SCStream`（設計判断 D-9）
+- 音声キャプチャは Phase 1 が `AVAudioEngine`、Phase 2 以降は **Core Audio Taps（ProcessTap）が既定・`SCStream` は代替**（設計判断 D-9 改訂 / D-10）
 - デュアル SCStream は使わない（設計判断 D-1）
 - `@Model` クラスは actor 境界を越えて渡せないため `PersistentIdentifier` を使う

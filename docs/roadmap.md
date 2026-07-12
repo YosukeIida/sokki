@@ -1,6 +1,7 @@
-# sokki ロードマップ（新規・GitHub Issues 全置換）
+# sokki ロードマップ（設計スナップショット）
 
-> 作成: 2026-06-26 / 本ファイルが**タスクの正本**。既存 GitHub Issue（#1〜）は全てクローズし、本ロードマップから新規 Issue を作り直す。
+> 作成: 2026-06-26 / **2026-07-12 更新: タスクの正本は Backlog.md（`backlog/`）へ移行**。本ファイルはフェーズ構成・依存関係・設計根拠のスナップショットとして保持する（タスク状態はここでは更新しない）。GitHub Issues は backlog の同期ミラー（同期ルールは CLAUDE.md 参照）。
+> （経緯）作成時点では本ファイルが正本で、旧 GitHub Issue（#1〜#22）を全クローズして #23〜#57 を作り直した。
 > 方針: API ハイブリッド化（[[project-sokki-direction]] / requirements.md / spec.md 改訂済み）。要約系は当面スコープ外（Phase 6）。
 > 根拠: `docs/implementation-feasibility.md` §6 の推奨ロードマップ＋ユーザー確定事項。
 

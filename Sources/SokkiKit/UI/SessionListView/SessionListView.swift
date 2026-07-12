@@ -12,6 +12,7 @@ struct SessionListView: View {
         List(sessions, selection: $selectedSession) { session in
             SessionRowView(session: session)
                 .tag(session)
+                .accessibilityIdentifier("sessionRow")
         }
         .listStyle(.sidebar)
         .navigationTitle("録音一覧")
@@ -41,7 +42,11 @@ struct SessionListView: View {
 
     private func deleteSelected() {
         guard let session = selectedSession else { return }
+        if let audioFileURL = session.audioFileURL {
+            try? FileManager.default.removeItem(at: audioFileURL)
+        }
         modelContext.delete(session)
+        try? modelContext.save()
         selectedSession = nil
     }
 }

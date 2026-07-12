@@ -13,10 +13,21 @@ enum PreviewPipeline {
         makePipeline()
     }
 
-    /// ローディング状態（モデルDL中）
+    /// ローディング状態（モデルDL中・進捗あり）
     static func loading() -> TranscriptionPipeline {
         let p = makePipeline()
-        p.setForPreview(isLoading: true, loadingMessage: "WhisperKit モデルをダウンロード・ロード中…\n初回は数分かかります")
+        p.setForPreview(
+            isLoading: true,
+            loadingMessage: "WhisperKit モデルをダウンロード中…",
+            downloadProgress: 0.42
+        )
+        return p
+    }
+
+    /// ローディング状態（メモリへのロード中・進捗率なし）
+    static func loadingIntoMemory() -> TranscriptionPipeline {
+        let p = makePipeline()
+        p.setForPreview(isLoading: true, loadingMessage: "モデルを読み込み中…")
         return p
     }
 
@@ -61,7 +72,7 @@ enum PreviewPipeline {
 private actor PreviewTranscriptionEngine: TranscriptionEngine {
     private(set) var isReady = true
     var modelIdentifier = "preview"
-    func prepare() async throws {}
+    func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws {}
     func transcribe(audioArray: [Float]) async throws -> [any TranscriptionSegment] { [] }
     func transcribeStream(audioChunks: AsyncStream<AudioChunk>) -> AsyncThrowingStream<any TranscriptionSegment, Error> {
         AsyncThrowingStream { $0.finish() }

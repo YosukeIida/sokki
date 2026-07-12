@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sokki — デザインモック: SessionDetailView v1</title>
+  <!--
+    トークン方針（docs/design/recording-view-v2.html からの流用）:
+      再利用（同名・同値のまま）:
+        ページ全体: --page-bg, --ink, --ink-muted, --ink-faint, --accent, --warn, --ok,
+                    --border, --card, --sys-ui, --sys-mono
+        モック共通: --page-bg2, --spk-a, --spk-b, --spk-c
+        テーマ別（.dir-console / .dir-manuscript 内）:
+          --content-bg, --titlebar, --sidebar, --transcript-bg, --controls-bg, --seg-bg,
+          --line, --text, --muted, --faint, --accent, --accent-on, --good, --rec,
+          --mic, --sys, --trans-rail
+        コンポーネント: .win / .titlebar / .lights / .win-title / .layout / .sidebar /
+          .side-h / .nav / .chip / .segment（テーマ・ロケール切替トグルに転用）/
+          .wave-vm（Voice Memos 風対称波形バー。幅3px・隙間4px を v2 と同じ値で流用）
+      新規トークンの追加: なし。
+        再生バーの「再生済み/未再生」の濃淡は --mic の opacity 差分で表現し、
+        新規カスタムプロパティは追加していない。
+      新規コンポーネントクラス（トークンではなく見た目のみ新規）:
+        .demo-controls, .detail-header, .back-link, .detail-title-row, .export-actions,
+        .btn / .btn-primary / .btn-secondary, .player, .play-btn, .seg-list, .seg-row,
+        .seg-bar, .seg-head, .seg-ts, .seg-spk, .seg-text
+  -->
+  <style>
+    /* ========== Page shell（v2 と同一トークン） ========== */
+    :root {
+      --page-bg: #f5f4f0;
+      --ink: #1b1d21;
+      --ink-muted: #5a5f6a;
+      --ink-faint: #9aa0a8;
+      --accent: #2b4a78;
+      --warn: #c23b2c;
+      --ok: #3c7a50;
+      --border: #dddedd;
+      --card: #ffffff;
+      --sys-ui: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+      --sys-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--sys-ui);
+      background: var(--page-bg);
+      color: var(--ink);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page { max-width: 1040px; margin: 0 auto; padding: 60px 24px 120px; }
+
+    .header { margin-bottom: 40px; border-bottom: 1px solid var(--border); padding-bottom: 32px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; background: #e6ecf5; color: var(--accent); border: 1px solid #c9d6e8; padding: 4px 10px; border-radius: 5px; margin-bottom: 16px; }
+    h1 { font-size: clamp(26px, 5vw, 38px); line-height: 1.1; letter-spacing: -.025em; font-weight: 700; margin-bottom: 12px; }
+    .subtitle { font-size: 16px; color: var(--ink-muted); max-width: 72ch; margin-bottom: 20px; }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px; color: var(--ink-faint); }
+    .meta-row span b { color: var(--ink-muted); font-weight: 600; }
+
+    section { margin-bottom: 48px; }
+    h2 { font-size: 18px; font-weight: 680; letter-spacing: -.01em; margin-bottom: 4px; }
+    .section-sub { font-size: 14px; color: var(--ink-muted); margin-bottom: 18px; }
+
+    .callout { border-left: 3px solid var(--accent); background: #f0f4fa; padding: 14px 18px; border-radius: 0 8px 8px 0; font-size: 13.5px; color: var(--ink-muted); margin: 16px 0; }
+    .callout b { color: var(--ink); }
+    .callout ul { margin: 8px 0 0 18px; }
+    .callout li { margin-bottom: 4px; }
+
+    footer { border-top: 1px solid var(--border); padding-top: 24px; font-size: 13px; color: var(--ink-faint); }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ===================== モック共通トークン（v2 と同一） ===================== */
+    :root {
+      --page-bg2: #d9dce1;
+      --spk-a: #4c7fc0; --spk-b: #3e9d6a; --spk-c: #7c5cff;
+    }
+
+    .mock-wrap { overflow-x: auto; padding: 4px; }
+    .win { width: 880px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line);
+      background: var(--content-bg); box-shadow: 0 24px 60px -24px rgba(20,22,30,.45), 0 2px 8px rgba(0,0,0,.08);
+      font-family: var(--sys-ui); color: var(--text); }
+    .titlebar { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--titlebar); border-bottom: 1px solid var(--line); }
+    .lights { display: flex; gap: 8px; } .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+    .lights .r { background: #ff5f57; } .lights .y { background: #febc2e; } .lights .g { background: #28c840; }
+    .win-title { font-size: 13px; color: var(--muted); font-weight: 540; } .win-title b { color: var(--text); font-weight: 600; }
+    .layout { display: grid; grid-template-columns: 196px 1fr; min-height: 560px; }
+    .sidebar { background: var(--sidebar); border-right: 1px solid var(--line); padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; }
+    .side-h { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 6px 10px 4px; font-weight: 600; }
+    .nav { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 7px; font-size: 13.5px; color: var(--text); }
+    .nav .ic { width: 17px; text-align: center; opacity: .85; }
+    .nav.active { background: var(--accent); color: var(--accent-on); font-weight: 560; } .nav.active .ic { opacity: 1; }
+    .nav.dim { color: var(--muted); }
+
+    .content { display: flex; flex-direction: column; min-width: 0; }
+
+    .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 560; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+
+    /* セグメントコントロール（v2 の Mic/System/Both と同じ見た目をトグルに転用） */
+    .segment { display: inline-flex; background: var(--seg-bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; }
+    .segment span { font-size: 12px; padding: 4px 11px; border-radius: 6px; color: var(--muted); font-weight: 520; cursor: pointer; user-select: none; }
+    .segment span:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .segment span.on { background: var(--accent); color: var(--accent-on); font-weight: 600; }
+
+    .mono { font-family: var(--sys-mono); font-variant-numeric: tabular-nums; }
+
+    /* ===================== 詳細ヘッダー ===================== */
+    .detail-header { padding: 14px 18px 16px; border-bottom: 1px solid var(--line); background: var(--controls-bg); }
+    .back-link { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; cursor: pointer; }
+    .back-link:hover { color: var(--text); }
+    .detail-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+    .detail-title { font-size: 19px; font-weight: 680; letter-spacing: -.01em; color: var(--text); }
+    .export-actions { display: flex; gap: 8px; flex: none; }
+    .btn { font-family: var(--sys-ui); font-size: 12.5px; font-weight: 580; padding: 6px 13px; border-radius: 7px; cursor: pointer; border: 1px solid transparent; white-space: nowrap; }
+    .btn-primary { background: var(--accent); color: var(--accent-on); }
+    .btn-secondary { background: transparent; color: var(--text); border-color: var(--line); }
+    .detail-meta { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); }
+
+    /* ===================== 再生バー ===================== */
+    .player { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--controls-bg); }
+    .play-btn { flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; cursor: pointer; border: none; }
+    .play-btn .tri { width: 0; height: 0; border-style: solid; border-width: 6px 0 6px 10px; border-color: transparent transparent transparent var(--accent-on); margin-left: 2px; }
+    .play-btn.playing .tri { width: 3px; height: 11px; border: none; background: var(--accent-on); margin: 0; box-shadow: 5px 0 0 var(--accent-on); }
+    .player .time-cur { width: 40px; text-align: right; font-size: 12px; color: var(--text); }
+    .player .time-total { width: 40px; font-size: 12px; color: var(--faint); }
+    .wave-vm { position: relative; height: 40px; flex: 1; display: flex; align-items: center; gap: 4px; overflow: hidden; }
+    .wave-vm i { width: 3px; flex: none; border-radius: 2px; min-height: 3px; display: block; background: var(--mic); }
+    .wave-vm i.unplayed { opacity: .32; }
+    .wave-vm .playhead { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--accent); border-radius: 1px; }
+    .wave-vm .playhead::after { content: ""; position: absolute; top: -3px; left: 50%; transform: translateX(-50%); width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+    /* ===================== 字幕リスト ===================== */
+    .seg-list { flex: 1; padding: 6px 0; display: flex; flex-direction: column; background: var(--transcript-bg); overflow-y: auto; }
+    .seg-row { display: flex; align-items: stretch; gap: 12px; padding: 10px 18px; }
+    .seg-bar { width: 3px; border-radius: 2px; flex: none; align-self: stretch; }
+    .seg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .seg-head { display: flex; align-items: center; gap: 9px; }
+    .seg-ts { font-size: 11px; color: var(--faint); font-weight: 500; }
+    .seg-spk { font-size: 11.5px; color: var(--muted); font-weight: 560; }
+    .seg-text { font-size: 14.5px; color: var(--text); line-height: 1.55; }
+
+    /* ===================== テーマ（v2 と同一トークン値） ===================== */
+    .dir-console {
+      --content-bg: #1a1e24; --titlebar: #1e232a; --sidebar: #171b20; --transcript-bg: #16191e; --controls-bg: #171b20; --seg-bg: #13161b;
+      --line: #2a2f37; --text: #e3e6eb; --muted: #939ba7; --faint: #626a76;
+      --accent: #35a597; --accent-on: #042420; --good: #4fb48f; --rec: #d9534c;
+      --mic: #6e96c9; --sys: #c27c6e; --trans-rail: #2e7e74;
+    }
+    .dir-manuscript {
+      --content-bg: #fafaf8; --titlebar: #eeefec; --sidebar: #f1f2f0; --transcript-bg: #fbfbf9; --controls-bg: #f1f2f0; --seg-bg: #e9eae6;
+      --line: #e1e3df; --text: #21242b; --muted: #5e6571; --faint: #9aa0a6;
+      --accent: #2b4a78; --accent-on: #ffffff; --good: #3c7a50; --rec: #c23b2c;
+      --mic: #486593; --sys: #a06b50; --trans-rail: #c8d0dc;
+    }
+
+    /* ===================== プレビュー操作パネル ===================== */
+    .demo-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-bottom: 16px; padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+    .demo-controls .group { display: flex; align-items: center; gap: 8px; }
+    .demo-controls .group-label { font-size: 12px; color: var(--ink-faint); font-weight: 600; }
+    .demo-controls .segment { --seg-bg: #eef0ee; --line: #dddedd; --accent: #2b4a78; --accent-on: #fff; --muted: #5a5f6a; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ===== HEADER ===== -->
+  <header class="header">
+    <div class="badge">デザインモック · v1</div>
+    <h1>sokki — SessionDetailView</h1>
+    <p class="subtitle">
+      録音セッション詳細画面のモックです。<a href="recording-view-v2.html">RecordingView v2</a> のトークンを流用し、ヘッダー（タイトル・エクスポート）・簡易再生バー・字幕形式の文字起こしリストを構成しています。テーマ・話者ラベル言語をトグルで確認できます。
+    </p>
+    <div class="meta-row">
+      <span><b>バージョン:</b> v1</span>
+      <span><b>対象画面:</b> SessionDetailView（録音詳細）</span>
+      <span><b>フェーズ:</b> Phase 1 MVP — backlog TASK-9.1 / Issue #58</span>
+      <span><b>プラットフォーム:</b> macOS 15+ / Apple Silicon</span>
+    </div>
+  </header>
+
+  <!-- ===== MOCKUP ===== -->
+  <section>
+    <h2>UI モック — SessionDetailView（インタラクティブ）</h2>
+    <p class="section-sub">下のトグルでテーマ・話者ラベルの言語を切り替えられます。再生ボタンは見た目のみのトグルです。</p>
+
+    <div class="demo-controls">
+      <div class="group">
+        <span class="group-label">テーマ</span>
+        <div class="segment" data-group="theme">
+          <span class="on" data-value="manuscript" role="button" tabindex="0">☀️ Manuscript</span>
+          <span data-value="console" role="button" tabindex="0">🌙 Console</span>
+        </div>
+      </div>
+      <div class="group">
+        <span class="group-label">話者ラベル</span>
+        <div class="segment" data-group="locale">
+          <span class="on" data-value="ja" role="button" tabindex="0">日本語</span>
+          <span data-value="en" role="button" tabindex="0">English</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mock-wrap">
+      <div class="win dir-manuscript" data-win>
+        <div class="titlebar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="win-title"><b>sokki</b> — 録音詳細</span></div>
+        <div class="layout">
+          <aside class="sidebar">
+            <div class="side-h">sokki</div>
+            <div class="nav"><span class="ic">●</span> 録音</div>
+            <div class="nav active"><span class="ic">≡</span> 録音一覧</div>
+            <div class="nav"><span class="ic">◑</span> 話者プロファイル</div>
+            <div style="flex:1"></div>
+            <div class="nav dim"><span class="ic">⚙</span> 設定</div>
+          </aside>
+          <main class="content">
+            <div class="detail-header">
+              <div class="back-link">‹ 録音一覧</div>
+              <div class="detail-title-row">
+                <div class="detail-title">採用面接 — フロントエンド</div>
+                <div class="export-actions">
+                  <button class="btn btn-primary">Markdown をコピー</button>
+                  <button class="btn btn-secondary">ファイルへ保存…</button>
+                </div>
+              </div>
+              <div class="detail-meta">
+                <span>7月7日 10:00</span>
+                <span class="mono">45:03</span>
+                <span class="chip">🎙🖥 Both</span>
+              </div>
+            </div>
+
+            <div class="player">
+              <button class="play-btn" data-play><span class="tri"></span></button>
+              <span class="mono time-cur">12:34</span>
+              <div class="wave-vm" data-player-wave></div>
+              <span class="mono time-total">45:03</span>
+            </div>
+
+            <div class="seg-list" data-segs></div>
+          </main>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== DESIGN NOTES ===== -->
+  <section>
+    <h2>デザイン上の判断メモ</h2>
+    <div class="callout">
+      <b>迷った点・意図的な変更点：</b>
+      <ul>
+        <li><b>タイムスタンプの位置：</b>現行 SwiftUI 実装（<code>SegmentRow</code>）はタイムスタンプを行右端に配置しているが、本タスクの要件「タイムスタンプは行頭 mm:ss」に従い、字幕行の先頭（話者カラーバーの直後）に移動した。字幕・SRT に近い読み方を優先する意図的な変更点として明記する。</li>
+        <li><b>話者カラーバー：</b>RecordingView v2 は話者を色付きドット（pin）で表現していたが、本画面は要件どおり行左端の縦バー（<code>SegmentRow</code> の実装に準拠）を採用し、v2 とは異なる話者インジケータ表現を意図的に使い分けている。</li>
+        <li><b>再生バー：</b>Voice Memos 風の対称波形（v2 の <code>.wave-vm</code>、幅3px・隙間4px）を流用し、再生位置より前を <code>--mic</code> 通常濃度、後ろを opacity .32 で減衰させて「再生済み/未再生」を表現。録音時の <code>--rec</code>（録音色）ではなく <code>--accent</code> を再生ヘッド・再生ボタンに使い、「録音」と「再生」を色で区別した。</li>
+        <li><b>エクスポートボタンの並び：</b>要件の記載順（Markdown をコピー → ファイルへ保存…）通り左から配置し、より頻度の高い「コピー」を primary、「保存」を secondary（アウトライン）にした。現行実装はコピーのみで保存ダイアログは未実装のため、これは今後の実装を見越したモックである。</li>
+        <li>新規 CSS カスタムプロパティは追加していない。</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <p>sokki プロジェクト · <a href="recording-view-v2.html">RecordingView v2</a> · <a href="session-list-v1.html">SessionListView v1</a> · <a href="../../spec.md">アーキテクチャ仕様（spec.md）</a> · <a href="../../requirements.md">要件定義（requirements.md）</a></p>
+    <p style="margin-top:8px;">このファイルは <code>docs/design/session-detail-v1.html</code> に配置されています。ブラウザで直接開いてください。</p>
+  </footer>
+
+</div>
+
+<script>
+  const SEGMENTS = [
+    { spk: "a", ja: "話者A", en: "Speaker A", ts: "00:08", text: "では自己紹介からお願いできますか。" },
+    { spk: "b", ja: "話者B", en: "Speaker B", ts: "00:14", text: "はい。フロントエンドを中心に4年ほど携わってきました。直近では React と TypeScript で社内向け管理画面を開発していました。" },
+    { spk: "a", ja: "話者A", en: "Speaker A", ts: "00:41", text: "ありがとうございます。チームでのコードレビュー文化についてはどう考えていますか？" },
+    { spk: "c", ja: "話者C", en: "Speaker C", ts: "00:55", text: "少し補足すると、今回の募集ポジションはレビュー体制の整備も期待しています。" },
+    { spk: "b", ja: "話者B", en: "Speaker B", ts: "01:07", text: "レビューは学びの機会だと捉えていて、指摘の理由をコメントに残すようにしています。" },
+  ];
+  const SPK_COLOR = { a: "var(--spk-a)", b: "var(--spk-b)", c: "var(--spk-c)" };
+
+  function segRowHTML(s) {
+    return `
+      <div class="seg-row">
+        <span class="seg-bar" style="background:${SPK_COLOR[s.spk]}"></span>
+        <div class="seg-body">
+          <div class="seg-head">
+            <span class="seg-ts mono">${s.ts}</span>
+            <span class="seg-spk" data-ja="${s.ja}" data-en="${s.en}">${s.ja}</span>
+          </div>
+          <div class="seg-text">${s.text}</div>
+        </div>
+      </div>`;
+  }
+  document.querySelectorAll("[data-segs]").forEach(el => {
+    el.innerHTML = SEGMENTS.map(segRowHTML).join("");
+  });
+
+  function playerWaveHTML(playedRatio) {
+    const n = 90;
+    let html = "";
+    for (let i = 0; i < n; i++) {
+      const env = Math.pow(Math.abs(Math.sin((i + 5) * 0.17)), 1.3) * 0.85 + 0.05;
+      const detail = 0.55 + 0.45 * Math.abs(Math.sin((i * 1.9 + 5) * 1.3));
+      const h = Math.max(6, Math.min(100, env * detail * 125));
+      const played = i / n < playedRatio;
+      html += `<i class="${played ? "" : "unplayed"}" style="height:${h.toFixed(0)}%"></i>`;
+    }
+    return html + `<span class="playhead" style="left:${(playedRatio * 100).toFixed(1)}%"></span>`;
+  }
+  document.querySelectorAll("[data-player-wave]").forEach(el => {
+    el.innerHTML = playerWaveHTML(0.28);
+  });
+
+  document.querySelectorAll("[data-play]").forEach(btn => {
+    btn.addEventListener("click", () => btn.classList.toggle("playing"));
+  });
+
+  function applyLocale(locale) {
+    document.querySelectorAll("[data-ja][data-en]").forEach(el => {
+      el.textContent = locale === "en" ? el.dataset.en : el.dataset.ja;
+    });
+  }
+
+  document.querySelectorAll(".segment[data-group]").forEach(group => {
+    const spans = group.querySelectorAll("span");
+    const select = (sp) => {
+      spans.forEach(x => x.classList.remove("on"));
+      sp.classList.add("on");
+      const win = document.querySelector("[data-win]");
+      const value = sp.dataset.value;
+      switch (group.dataset.group) {
+        case "theme":
+          win.classList.remove("dir-manuscript", "dir-console");
+          win.classList.add(value === "console" ? "dir-console" : "dir-manuscript");
+          break;
+        case "locale":
+          applyLocale(value);
+          break;
+      }
+    };
+    spans.forEach(sp => {
+      sp.addEventListener("click", () => select(sp));
+      sp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(sp); }
+      });
+    });
+  });
+</script>
+
+</body>
+</html>

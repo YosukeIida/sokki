@@ -7,3 +7,4 @@ DerivedData/
 xcuserdata/
 *.o
 *.d
+.DS_Store

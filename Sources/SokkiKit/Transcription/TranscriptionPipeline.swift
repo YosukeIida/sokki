@@ -26,7 +26,11 @@ final class TranscriptionPipeline {
     private(set) var isRunning: Bool = false
     private(set) var isLoading: Bool = false
     private(set) var loadingMessage: String = ""
+    /// モデルダウンロードの進捗（0...1）。ダウンロード段階以外や進捗が取得できない場合は nil。
+    private(set) var downloadProgress: Double? = nil
     private(set) var elapsedSeconds: Double = 0
+    /// 録音ファイルの保存に問題が発生した場合の利用者向けメッセージ（P1）。
+    private(set) var recordingSaveErrorMessage: String? = nil
 
     // Phase 2 で実装（SCStream 連携後に有効化）
     // var micLevelStream:    AsyncStream<Float> { ... }
@@ -41,6 +45,7 @@ final class TranscriptionPipeline {
     private var captureTask: Task<Void, Error>?
     private var timerTask: Task<Void, Never>?
     private var currentSessionID: PersistentIdentifier?
+    private var recordingStartedAt: Date?
 
     init(
         captureManager: AudioCaptureManager,
@@ -61,9 +66,22 @@ final class TranscriptionPipeline {
 
         if await !transcriptionEngine.isReady {
             isLoading = true
-            loadingMessage = "WhisperKit モデルをダウンロード・ロード中…\n初回は数分かかります"
-            defer { isLoading = false; loadingMessage = "" }
-            try await transcriptionEngine.prepare()
+            loadingMessage = "WhisperKit モデルをダウンロード中…\n初回は数分かかります"
+            downloadProgress = 0
+            defer { isLoading = false; loadingMessage = ""; downloadProgress = nil }
+            try await transcriptionEngine.prepare(onProgress: { [weak self] phase in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    switch phase {
+                    case .downloading(let fractionCompleted):
+                        self.downloadProgress = fractionCompleted
+                        self.loadingMessage = "WhisperKit モデルをダウンロード中…"
+                    case .loadingIntoMemory:
+                        self.downloadProgress = nil
+                        self.loadingMessage = "モデルを読み込み中…"
+                    }
+                }
+            })
         }
 
         let title = sessionTitle.isEmpty
@@ -72,8 +90,12 @@ final class TranscriptionPipeline {
 
         let sessionID = try await sessionManager.createSession(title: title, mode: mode)
         currentSessionID = sessionID
+        recordingStartedAt = Date()
 
-        try await captureManager.startCapture(mode: mode)
+        // 録音ファイルの書き出し先を渡す（P1-1）
+        let audioURL = await sessionManager.audioURL(forSessionID: sessionID)
+        try await captureManager.startCapture(mode: mode, outputURL: audioURL)
+        recordingSaveErrorMessage = await captureManager.recordingSaveError.map(makeSaveErrorMessage)
 
         isRunning = true
         elapsedSeconds = 0
@@ -111,8 +133,14 @@ final class TranscriptionPipeline {
     func stop() async throws {
         timerTask?.cancel()
 
+        // 録音長は「開始〜停止操作まで」の実時間で確定（後続フラッシュ時間を含めない・P1-2）
+        let duration = recordingStartedAt.map { Date().timeIntervalSince($0) }
+
         // 1. ストリームを閉じる（transcribeStream のフラッシュがトリガーされる）
         await captureManager.stopCapture()
+        if let error = await captureManager.recordingSaveError {
+            recordingSaveErrorMessage = makeSaveErrorMessage(error)
+        }
 
         // 2. フラッシュ（バッファ内の残音声を文字起こし）が終わるまで待つ
         isLoading = true
@@ -129,7 +157,18 @@ final class TranscriptionPipeline {
         captureTask = nil
 
         isRunning = false
+
+        // 録音長を保存（P1-2）。失敗してもセッション自体は保持する。
+        if let sid = currentSessionID, let duration {
+            try? await sessionManager.updateDuration(sessionID: sid, duration: duration)
+        }
+        recordingStartedAt = nil
         // Phase 3 で: diarization をバッチ実行
+    }
+
+    /// 利用者がエラーバナーを閉じたときに呼ぶ。
+    func dismissRecordingSaveError() {
+        recordingSaveErrorMessage = nil
     }
 
 #if DEBUG
@@ -137,6 +176,7 @@ final class TranscriptionPipeline {
         isRunning: Bool = false,
         isLoading: Bool = false,
         loadingMessage: String = "",
+        downloadProgress: Double? = nil,
         elapsedSeconds: Double = 0,
         confirmedSegments: [TranscriptSegmentViewModel] = [],
         hypothesisText: String = ""
@@ -144,11 +184,16 @@ final class TranscriptionPipeline {
         self.isRunning = isRunning
         self.isLoading = isLoading
         self.loadingMessage = loadingMessage
+        self.downloadProgress = downloadProgress
         self.elapsedSeconds = elapsedSeconds
         self.confirmedSegments = confirmedSegments
         self.hypothesisText = hypothesisText
     }
 #endif
+
+    private func makeSaveErrorMessage(_ error: Error) -> String {
+        "録音ファイルの保存に失敗しました。ディスクの空き容量を確認してください。（\(error.localizedDescription)）"
+    }
 
     private func startTimer() {
         let start = Date()
