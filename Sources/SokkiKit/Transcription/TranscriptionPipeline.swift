@@ -114,17 +114,19 @@ final class TranscriptionPipeline {
 
             let transcriptStream = await transcriptionEngine.transcribeStream(audioChunks: source)
 
-            for try await segment in transcriptStream {
-                await MainActor.run {
-                    if segment.isConfirmed {
-                        confirmedSegments.append(TranscriptSegmentViewModel(segment))
-                        hypothesisText = ""
-                    } else {
-                        hypothesisText = segment.text
-                    }
+            // captureTask は @MainActor コンテキストで生成されるため MainActor 隔離を継承する。
+            // よって confirmedSegments / hypothesisText への代入はそのまま MainActor 上で行える。
+            for try await update in transcriptStream {
+                for segment in update.newlyConfirmed {
+                    confirmedSegments.append(TranscriptSegmentViewModel(segment))
                 }
-                if segment.isConfirmed, let sid = currentSessionID {
-                    try await sessionManager.appendSegment(segment, toSessionID: sid)
+                hypothesisText = update.hypothesis
+
+                // 確定セグメントのみを永続化する（既存フロー維持）。
+                if let sid = currentSessionID {
+                    for segment in update.newlyConfirmed {
+                        try await sessionManager.appendSegment(segment, toSessionID: sid)
+                    }
                 }
             }
         }
