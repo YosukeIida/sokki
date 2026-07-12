@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sokki — デザインレビュー: RecordingView v3</title>
+  <style>
+    /* ========== Page shell ========== */
+    :root {
+      --page-bg: #f5f4f0;
+      --ink: #1b1d21;
+      --ink-muted: #5a5f6a;
+      --ink-faint: #9aa0a8;
+      --accent: #2b4a78;
+      --warn: #c23b2c;
+      --ok: #3c7a50;
+      --border: #dddedd;
+      --card: #ffffff;
+      --sys-ui: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+      --sys-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--sys-ui);
+      background: var(--page-bg);
+      color: var(--ink);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Layout */
+    .page { max-width: 1040px; margin: 0 auto; padding: 60px 24px 120px; }
+
+    /* Header */
+    .header { margin-bottom: 56px; border-bottom: 1px solid var(--border); padding-bottom: 40px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; background: #e6ecf5; color: var(--accent); border: 1px solid #c9d6e8; padding: 4px 10px; border-radius: 5px; margin-bottom: 16px; }
+    h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.1; letter-spacing: -.025em; font-weight: 700; margin-bottom: 14px; }
+    .subtitle { font-size: 17px; color: var(--ink-muted); max-width: 72ch; margin-bottom: 24px; }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px; color: var(--ink-faint); }
+    .meta-row span b { color: var(--ink-muted); font-weight: 600; }
+
+    /* Sections */
+    section { margin-bottom: 64px; }
+    h2 { font-size: 20px; font-weight: 680; letter-spacing: -.01em; margin-bottom: 4px; }
+    .section-sub { font-size: 14px; color: var(--ink-muted); margin-bottom: 20px; }
+
+    /* Concept card grid */
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px 22px 20px; }
+    .card-icon { font-size: 24px; margin-bottom: 10px; }
+    .card h3 { font-size: 15px; font-weight: 660; margin-bottom: 6px; }
+    .card p { font-size: 13.5px; color: var(--ink-muted); line-height: 1.55; }
+    .card.highlight { border-color: #c9d6e8; background: #f0f4fa; }
+
+    /* Design decisions table */
+    .decisions-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .decisions-table th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); padding: 0 12px 10px; border-bottom: 1px solid var(--border); }
+    .decisions-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .decisions-table tr:last-child td { border-bottom: none; }
+    .decisions-table td:first-child { font-weight: 600; white-space: nowrap; }
+    .decisions-table .rationale { color: var(--ink-muted); }
+    .decisions-table .status { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+    .status.decided { background: #e6f4ec; color: #2e6b3e; }
+    .status.open { background: #fef3e2; color: #9a6000; }
+    .status.exploring { background: #eee8ff; color: #5a3bb5; }
+
+    /* Feedback areas */
+    .feedback-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+    .feedback-box { background: var(--card); border: 2px dashed var(--border); border-radius: 12px; padding: 20px; }
+    .feedback-box h4 { font-size: 14px; font-weight: 660; margin-bottom: 6px; }
+    .feedback-box p { font-size: 13px; color: var(--ink-muted); margin-bottom: 12px; line-height: 1.5; }
+    .feedback-box .hint { font-size: 12px; color: var(--ink-faint); font-style: italic; }
+
+    /* Mock wrap */
+    .mock-section { margin-bottom: 48px; }
+    .mock-label { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .mode-badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 7px; }
+    .mode-badge.light { background: #fafaf8; color: #21242b; border: 1px solid #e1e3df; }
+    .mode-badge.dark { background: #1b2026; color: #e3e6eb; border: 1px solid #2a2f37; }
+    .mock-label-text { font-size: 16px; font-weight: 660; }
+    .mock-label-tag { font-size: 13px; color: var(--ink-faint); }
+    .mock-wrap { overflow-x: auto; padding: 4px; }
+
+    /* ===================== Mockup styles ===================== */
+    :root {
+      --page-bg2: #d9dce1;
+      --spk-a: #4c7fc0; --spk-b: #3e9d6a; --spk-c: #7c5cff;
+    }
+    .win { width: 880px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line);
+      background: var(--content-bg); box-shadow: 0 24px 60px -24px rgba(20,22,30,.45), 0 2px 8px rgba(0,0,0,.08);
+      font-family: var(--sys-ui); color: var(--text); }
+    .titlebar { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--titlebar); border-bottom: 1px solid var(--line); }
+    .lights { display: flex; gap: 8px; } .lights i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+    .lights .r { background: #ff5f57; } .lights .y { background: #febc2e; } .lights .g { background: #28c840; }
+    .win-title { font-size: 13px; color: var(--muted); font-weight: 540; } .win-title b { color: var(--text); font-weight: 600; }
+    .layout { display: grid; grid-template-columns: 196px 1fr; min-height: 540px; }
+    .sidebar { background: var(--sidebar); border-right: 1px solid var(--line); padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; }
+    .side-h { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 6px 10px 4px; font-weight: 600; }
+    .nav { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 7px; font-size: 13.5px; color: var(--text); }
+    .nav .ic { width: 17px; text-align: center; opacity: .85; }
+    .nav.active { background: var(--accent); color: var(--accent-on); font-weight: 560; } .nav.active .ic { opacity: 1; }
+    .nav.dim { color: var(--muted); }
+    .rv { display: flex; flex-direction: column; min-width: 0; }
+    .rv-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .segment { display: inline-flex; background: var(--seg-bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; }
+    .segment span { font-size: 12.5px; padding: 4px 12px; border-radius: 6px; color: var(--muted); font-weight: 520; cursor: pointer; user-select: none; }
+    .segment span:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .segment span.on { background: var(--accent); color: var(--accent-on); font-weight: 600; }
+    .top-right { display: flex; align-items: center; gap: 8px; }
+    .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 560; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+    .chip.local { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); background: color-mix(in srgb, var(--good) 12%, transparent); }
+    .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .toggle { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); }
+    .toggle .sw { width: 30px; height: 18px; border-radius: 999px; background: var(--accent); position: relative; }
+    .toggle .sw::after { content:""; position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+    .toggle .lang { font-family: var(--sys-mono); font-size: 11px; color: var(--muted); }
+    .wave-band { padding: 12px 16px 14px; border-bottom: 1px solid var(--line); }
+    .wave-cap { font-size: 10px; font-family: var(--sys-mono); letter-spacing: .04em; color: var(--faint); margin-bottom: 9px; display: inline-flex; align-items: center; gap: 5px; }
+    .wave-cap i { width: 7px; height: 7px; border-radius: 50%; }
+    .wave-cap.mic i { background: var(--mic); } .wave-cap.sys i { background: var(--sys); }
+    .wave-vm { height: 58px; display: flex; align-items: center; gap: 4px; overflow: hidden; }
+    .wave-vm i { width: 3px; flex: none; border-radius: 2px; min-height: 3px; display: block; }
+    .wave-vm.mic i { background: var(--mic); } .wave-vm.sys i { background: var(--sys); }
+    .wave-legend { display: flex; gap: 14px; margin-bottom: 8px; }
+    .wave-legend span { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-family: var(--sys-mono); letter-spacing: .04em; color: var(--faint); }
+    .wave-legend i { width: 7px; height: 7px; border-radius: 50%; }
+    .wave-legend .m { background: var(--mic); } .wave-legend .s { background: var(--sys); }
+    .wave-dual { position: relative; height: 58px; display: flex; align-items: stretch; gap: 4px; overflow: hidden; }
+    .wave-dual::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--line); }
+    .wave-dual .col { width: 3px; flex: none; display: flex; flex-direction: column; }
+    .wave-dual .col .u { flex: 1; display: flex; align-items: flex-end; }
+    .wave-dual .col .d { flex: 1; display: flex; align-items: flex-start; }
+    .wave-dual .col i { width: 100%; border-radius: 2px; min-height: 2px; display: block; }
+    .wave-dual .col .u i { background: var(--mic); }
+    .wave-dual .col .d i { background: var(--sys); opacity: .85; }
+    .transcript { flex: 1; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; background: var(--transcript-bg); min-height: 220px; }
+    .line { display: flex; flex-direction: column; gap: 3px; }
+    .spk { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); font-weight: 560; }
+    .spk .pin { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+    .spk .ts { font-family: var(--sys-mono); font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; font-weight: 500; }
+    .spk .unnamed { color: var(--faint); font-weight: 500; }
+    .orig { font-size: 15px; color: var(--text); line-height: 1.55; }
+    .trans { font-size: 13.5px; color: var(--muted); line-height: 1.5; }
+    .line.has-trans { border-left: 2px solid var(--trans-rail); padding-left: 12px; margin-left: 1px; }
+    .hyp { font-size: 15px; color: var(--faint); }
+    .hyp::after { content: "▏"; opacity: .6; }
+    .controls { display: flex; align-items: center; padding: 14px 18px 18px; border-top: 1px solid var(--line); background: var(--controls-bg); }
+    .tc { font-family: var(--sys-mono); font-size: 15px; font-variant-numeric: tabular-nums; color: var(--text); width: 120px; }
+    .tc .rec-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--rec); margin-right: 7px; vertical-align: middle; }
+    .rec-btn { margin: 0 auto; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; }
+    .rec-btn .glyph { width: 22px; height: 22px; border-radius: 6px; background: var(--rec); }
+    .rec-btn.recording { border: 3px solid color-mix(in srgb, var(--rec) 50%, transparent); }
+    .controls .spacer { width: 120px; text-align: right; font-size: 12px; color: var(--faint); }
+    @media (prefers-reduced-motion: no-preference) {
+      .tc .rec-dot, .rec-btn.recording .glyph { animation: pulse 1.8s ease-in-out infinite; }
+      @keyframes pulse { 50% { opacity: .35; } }
+    }
+    .dir-console {
+      --content-bg: #1a1e24; --titlebar: #1e232a; --sidebar: #171b20; --transcript-bg: #16191e; --controls-bg: #171b20; --seg-bg: #13161b;
+      --line: #2a2f37; --text: #e3e6eb; --muted: #939ba7; --faint: #626a76;
+      --accent: #35a597; --accent-on: #042420; --good: #4fb48f; --rec: #d9534c;
+      --mic: #6e96c9; --sys: #c27c6e; --trans-rail: #2e7e74;
+    }
+    .dir-manuscript {
+      --content-bg: #fafaf8; --titlebar: #eeefec; --sidebar: #f1f2f0; --transcript-bg: #fbfbf9; --controls-bg: #f1f2f0; --seg-bg: #e9eae6;
+      --line: #e1e3df; --text: #21242b; --muted: #5e6571; --faint: #9aa0a6;
+      --accent: #2b4a78; --accent-on: #ffffff; --good: #3c7a50; --rec: #c23b2c;
+      --mic: #486593; --sys: #a06b50; --trans-rail: #c8d0dc;
+    }
+    .dir-manuscript .transcript { max-width: 640px; }
+
+    /* Callout */
+    .callout { border-left: 3px solid var(--accent); background: #f0f4fa; padding: 14px 18px; border-radius: 0 8px 8px 0; font-size: 14px; color: var(--ink-muted); margin: 16px 0; }
+    .callout b { color: var(--ink); }
+
+    /* Open questions */
+    .oq-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    .oq-list li { display: flex; gap: 12px; align-items: flex-start; }
+    .oq-num { font-size: 12px; font-weight: 700; color: #fff; background: var(--accent); width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex: none; margin-top: 1px; }
+    .oq-text { font-size: 14px; color: var(--ink-muted); }
+    .oq-text b { color: var(--ink); }
+
+    /* Footer */
+    footer { border-top: 1px solid var(--border); padding-top: 24px; font-size: 13px; color: var(--ink-faint); }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ===== HEADER ===== -->
+  <header class="header">
+    <div class="badge">デザインレビュー · v3</div>
+    <h1>sokki — RecordingView</h1>
+    <p class="subtitle">
+      sokki は macOS 15+ 向けのネイティブ音声文字起こしアプリです。会議・インタビュー・講義を録音しながら、オンデバイス AI でリアルタイムに文字起こし・話者識別・翻訳を行います。このページはデザイン方針の共有とフィードバック収集のためのリビューページです。
+    </p>
+    <div class="meta-row">
+      <span><b>バージョン:</b> v3（<a href="../../DESIGN.md">DESIGN.md</a> 策定を受けて決定事項を確定・洗練）</span>
+      <span><b>対象画面:</b> RecordingView（録音中メイン画面）</span>
+      <span><b>フェーズ:</b> Phase 1 MVP</span>
+      <span><b>プラットフォーム:</b> macOS 15+ / Apple Silicon</span>
+    </div>
+    <div class="callout" style="margin-top: 20px;">
+      <b>v2 → v3 の変更点：</b> 録音ボタンの形状・彩度の使い方・Manuscript の朱の位置づけを <a href="../../DESIGN.md">DESIGN.md</a> として明文化した。それに伴い「検討中」だった決定事項をいくつか確定し、Pindrop / SuperIntern（同市場の実プロダクト）と ElevenLabs / Linear / aeru（<code>awesome-design-md</code> 系のリファレンス）から得た学びを新セクションとして追加した。配色・書体・レイアウトの数値そのものは v2 から変更していない — 変わったのは「なぜその値なのか」の言語化と、一部の未決定事項の確定である。
+    </div>
+  </header>
+
+  <!-- ===== APP CONCEPT ===== -->
+  <section>
+    <h2>アプリのコンセプト</h2>
+    <p class="section-sub">sokki が解こうとしている課題と、それを解くためのアプローチ</p>
+    <div class="cards">
+      <div class="card highlight">
+        <div class="card-icon">🎙</div>
+        <h3>録音しながら「読める」文字起こし</h3>
+        <p>録音が終わったあとに文字起こしするのではなく、録音中にリアルタイムで文字が流れる。会議の途中でも「さっき何て言ったっけ」をスクロールで確認できる。</p>
+      </div>
+      <div class="card highlight">
+        <div class="card-icon">🔒</div>
+        <h3>すべてオンデバイス処理</h3>
+        <p>機密性の高い会話・インタビュー・社内ミーティングを扱う。音声データはクラウドに送らず、Apple Silicon の Neural Engine で完結。オンデバイスバッジが常時表示される。</p>
+      </div>
+      <div class="card highlight">
+        <div class="card-icon">👥</div>
+        <h3>話者を識別して色分け</h3>
+        <p>声紋から話者を自動識別し、色とラベル（Speaker A / B / 実名）で区別。多人数の議事録でも「誰が何を言ったか」が一目でわかる。</p>
+      </div>
+      <div class="card highlight">
+        <div class="card-icon">🌐</div>
+        <h3>発話と同時に翻訳</h3>
+        <p>日英・英日などのリアルタイム翻訳をオプションで表示。原文の直下に淡い訳文が流れる。外国語の会議でも「本来の言語」を残しながら理解できる。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🎵</div>
+        <h3>Mic / System / Both の同軸波形</h3>
+        <p>マイク入力（自分の声）とシステム音声（相手の声・PC の音）を別レイヤーで可視化。録音ソースの状態が一目で確認できる。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📄</div>
+        <h3>Markdown エクスポート</h3>
+        <p>録音終了後、話者・タイムスタンプ付きの Markdown で書き出せる。議事録・インタビューメモ・ノートに直接貼り付けられる形式。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== DESIGN THINKING ===== -->
+  <section>
+    <h2>デザイン思考 — 主な判断と根拠</h2>
+    <p class="section-sub">各決定の「なぜ」。変更可能なものは <span class="status open">検討中</span> で表示</p>
+
+    <div class="callout">
+      <b>ふたつのモード、ひとつのアプリ：</b> ライト（Manuscript）はドキュメント体験を重視した冷静な紙面、ダーク（Console）は暗い場所での長時間使用に耐える計器盤。配色は変わるが書体・構造・UX は同一。
+    </div>
+
+    <table class="decisions-table">
+      <colgroup>
+        <col style="width: 180px">
+        <col style="width: 80px">
+        <col>
+        <col>
+      </colgroup>
+      <thead>
+        <tr>
+          <th>決定事項</th>
+          <th>状態</th>
+          <th>採用した理由</th>
+          <th>検討した代替案 / 残る課題</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>書体を両モード統一（サンセリフ）</td>
+          <td><span class="status decided">決定</span></td>
+          <td class="rationale">Manuscript モードで明朝体を試したが、日本語小さいサイズでの可読性が低く、ラスタライズのばらつきが目立った。SF Pro / ヒラギノ角ゴで統一し、文書感は配色・余白・読み幅で表現する方針に。</td>
+          <td class="rationale">Manuscript に限り serif を使う案は引き続きあり。フォントサイズが大きい一覧・詳細画面では再検討余地がある。</td>
+        </tr>
+        <tr>
+          <td>波形 = Voice Memos 風（対称・細い棒）</td>
+          <td><span class="status decided">決定</span></td>
+          <td class="rationale">録音時の入力レベル確認が主目的。装飾的な波形よりも実用的な「音が入っているか」の視認性を優先。3px 幅の棒＋隙間でノイズフロアを表現。</td>
+          <td class="rationale">スペクトログラム、ルーメーター（VU）、Waveform ライン（単線）なども比較。現状 Mic 単体は1波形（対称）、Both は同軸2波形（mic=上 / sys=下）。</td>
+        </tr>
+        <tr>
+          <td>話者色を固定（声紋に紐づく）</td>
+          <td><span class="status decided">決定</span></td>
+          <td class="rationale">「Speaker A は青」というマッピングをセッション内で固定することで、発言者の視覚的追跡コストを下げる。色はライト・ダーク両方で WCAG AA を満たす中間色を選定。</td>
+          <td class="rationale">色弱ユーザーへの配慮（形・パターン補助）は Phase 2 以降の課題。現状 3 話者まで色を定義（A=青、B=緑、C=紫）。4 話者以上の扱いは未決。</td>
+        </tr>
+        <tr>
+          <td>未登録話者 = Speaker A / B 表示</td>
+          <td><span class="status decided">決定</span></td>
+          <td class="rationale">声紋登録前でも話者が分かれていることを示す必要がある。実名が不明な場合のフォールバックとして汎用ラベルを使用。</td>
+          <td class="rationale">「話者1・話者2」「?・??」「Unknown」なども比較。英語 "Speaker A" で統一することで、翻訳表示時も違和感が少ない。</td>
+        </tr>
+        <tr>
+          <td>ダーク配色: 青・赤を鎮静化</td>
+          <td><span class="status decided">decided</span></td>
+          <td class="rationale">初版の Mic 青（#5FA3FF）・録音赤（#FF4545）は暗背景で刺激が強すぎた。長時間使用での眼精疲労を考慮し彩度を低下（#6E96C9 / #D9534C）。</td>
+          <td class="rationale">さらに下げる余地あり。アクセント色（ティール #35A597）との明度バランスは要確認。</td>
+        </tr>
+        <tr>
+          <td>翻訳はオリジナルの直下（orig → trans の順）</td>
+          <td><span class="status decided">決定</span></td>
+          <td class="rationale">原文を先に読んでから訳を補助として参照する使い方を想定。左ボーダーで「翻訳あり行」を視覚的にグループ化。</td>
+          <td class="rationale">訳を先にする（trans → orig）案は多言語会議で役立つ可能性。切り替え可能なオプションにすべきか検討中。</td>
+        </tr>
+        <tr>
+          <td>オンデバイスバッジを常時表示</td>
+          <td><span class="status decided">決定</span></td>
+          <td class="rationale">プライバシーが sokki の差別化軸。「データが外に出ていない」ことを常に視認できることがユーザーの安心感に直結する。</td>
+          <td class="rationale">バッジのサイズ・配置（ツールバー vs ステータスバー）は詰めが必要。</td>
+        </tr>
+        <tr>
+          <td>録音ボタン = 56px 丸形</td>
+          <td><span class="status decided">決定</span></td>
+          <td class="rationale">「今録音中か」の状態視認性を最大化。VoiceOver ユーザーへの配慮として大ターゲットを確保。macOS 標準のツールバーボタンとの乖離は許容し、Voice Memos 系アプリの慣習（中央固定・大型丸ボタン）に寄せた。<code>DESIGN.md</code> の <code>record-button-idle</code> / <code>record-button-recording</code> として確定。</td>
+          <td class="rationale">現行の SwiftUI 実装（<code>RecordingView.swift</code>）は SF Symbol の 44pt グリフのみで、56px の円背景がまだ描画されていない。実装側の追従が必要（backlog 参照）。</td>
+        </tr>
+        <tr>
+          <td>3 ペイン構成（サイドバー + コンテンツ）</td>
+          <td><span class="status exploring">探索中</span></td>
+          <td class="rationale">録音一覧・話者プロファイル・設定への常時アクセスを確保。macOS 標準 NavigationSplitView のパターンに沿っている。</td>
+          <td class="rationale">録音中はサイドバーを自動で閉じる「集中モード」があると良いかもしれない。</td>
+        </tr>
+        <tr>
+          <td>アクセントは1色のみに制限（彩度を絞る）</td>
+          <td><span class="status decided">決定</span></td>
+          <td class="rationale"><b>Linear</b>（<code>awesome-design-md</code>）を参照。彩度の高い色を1色（Console はティール）に絞り、他の面はすべて無彩色〜低彩度グレーの階調ラダーで積む。ElevenLabs のような多色パステルグラデーションは sokki のブランド方針として不採用と明確化した。</td>
+          <td class="rationale">mic/sys の波形色・話者パレット（青緑紫）は「識別のための色」であり、この制限の対象外——アクセントは「今アクティブなもの」だけに使うという役割の違いを整理した。</td>
+        </tr>
+        <tr>
+          <td>Manuscript = 朱の校正メタファー</td>
+          <td><span class="status decided">決定</span></td>
+          <td class="rationale"><b>aeru（和える）</b>（<code>awesome-design-md-jp</code>）を参照。朱色をブランドカラーに据え和紙のようなオフホワイト面を使う構成から、「墨で書かれた原稿に朱で校正が入る」という文書メタファーを言語化した。録音インジケータ（<code>--rec: #c23b2c</code>）だけを朱にする——朱を増やさない、という制約もここから導出。</td>
+          <td class="rationale">aeru は温かみのあるオフホワイト（暖色）だが、sokki の Manuscript は意図的に「冷たい」紙色（<code>#fafaf8</code>）を保つ。暖色に寄せるかどうかは未検証。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ===== REFERENCE INSPIRATIONS ===== -->
+  <section>
+    <h2>参照したデザイン — 何を、なぜ学んだか</h2>
+    <p class="section-sub">色そのものの模倣元ではなく、「トーン・構造」の参照元。詳細は <a href="../../DESIGN.md">DESIGN.md</a> の Reference Inspirations を参照</p>
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon">🎙️</div>
+        <h3>Pindrop（同市場の実プロダクト）</h3>
+        <p>「Dictation that respects you」「Privacy-First」を打ち出す音声入力アプリ。誠実で開放的なホワイトスペースの使い方が、sokki のオンデバイスバッジの見せ方の参考になった。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📝</div>
+        <h3>SuperIntern（同市場の実プロダクト）</h3>
+        <p>「Botless Meeting AI」を掲げる会議文字起こしアプリ。モノトーン基調・高コントラストな「ビジネス的信頼感」の作り方が、Manuscript の墨・朱の緊張感の方向性の裏付けになった。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌊</div>
+        <h3>ElevenLabs（awesome-design-md）</h3>
+        <p>audio-waveform を主要なビジュアル要素として扱う構造は sokki の mic/sys 波形表示と対応する。ただし多色パステルグラデーションは不採用——彩度アクセントはティール1点という方針と矛盾するため。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">▪️</div>
+        <h3>Linear（awesome-design-md）</h3>
+        <p>彩度の高い色は1つだけ、面は階調ラダーで積む、ドロップシャドウをほぼ使わない——この構造的な思想が Console テーマの設計原則そのものと一致する。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🖌️</div>
+        <h3>aeru / 和える（awesome-design-md-jp）</h3>
+        <p>朱色をブランドカラーに、和紙のような温かみのあるオフホワイトを面色にする構成。Manuscript の「朱の録音インジケータ + 冷たい紙面」という設計方針の裏付けになった。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== MOCKUPS ===== -->
+  <section>
+    <h2>UI モック — RecordingView（インタラクティブ）</h2>
+    <p class="section-sub">Mic / System / Both をクリックすると波形が切り替わります</p>
+
+    <!-- Light -->
+    <div class="mock-section">
+      <div class="mock-label">
+        <span class="mode-badge light">☀️ Light</span>
+        <span class="mock-label-text">Manuscript</span>
+        <span class="mock-label-tag">冷たい紙・墨・朱 / 読み幅で文書感</span>
+      </div>
+      <div class="mock-wrap">
+        <div class="win dir-manuscript">
+          <div class="titlebar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="win-title"><b>sokki</b> — 録音</span></div>
+          <div class="layout">
+            <aside class="sidebar">
+              <div class="side-h">sokki</div>
+              <div class="nav active"><span class="ic">●</span> 録音</div>
+              <div class="nav"><span class="ic">≡</span> 録音一覧</div>
+              <div class="nav"><span class="ic">◑</span> 話者プロファイル</div>
+              <div style="flex:1"></div>
+              <div class="nav dim"><span class="ic">⚙</span> 設定</div>
+            </aside>
+            <main class="rv"></main>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dark -->
+    <div class="mock-section">
+      <div class="mock-label">
+        <span class="mode-badge dark">🌙 Dark</span>
+        <span class="mock-label-text">Console</span>
+        <span class="mock-label-tag">鎮めた計器・ティール1点・同軸波形</span>
+      </div>
+      <div class="mock-wrap">
+        <div class="win dir-console">
+          <div class="titlebar"><span class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></span><span class="win-title"><b>sokki</b> — 録音</span></div>
+          <div class="layout">
+            <aside class="sidebar">
+              <div class="side-h">sokki</div>
+              <div class="nav active"><span class="ic">●</span> 録音</div>
+              <div class="nav"><span class="ic">≡</span> 録音一覧</div>
+              <div class="nav"><span class="ic">◑</span> 話者プロファイル</div>
+              <div style="flex:1"></div>
+              <div class="nav dim"><span class="ic">⚙</span> 設定</div>
+            </aside>
+            <main class="rv"></main>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== OPEN QUESTIONS ===== -->
+  <section>
+    <h2>オープンクエスチョン — デザイナーに意見を聞きたいこと</h2>
+    <p class="section-sub">録音ボタンの形状（v2 Q1）と次画面の方向性（v2 Q7）は決定・対応済みのため今回はクローズした。以下の点についてフィードバック・新しいアイデアを歓迎します</p>
+    <ul class="oq-list">
+      <li>
+        <span class="oq-num">1</span>
+        <span class="oq-text"><b>翻訳の表示方法：</b>現在は原文の下に薄い字で訳を並べています。外国語会議では訳を主、原文を補助にしたいケースもあるかもしれません。どのような切り替え体験が自然でしょうか？</span>
+      </li>
+      <li>
+        <span class="oq-num">2</span>
+        <span class="oq-text"><b>色弱・アクセシビリティ：</b>話者の識別を色に頼っています。色覚多様性ユーザーへの配慮として、色以外の補助（パターン・形・ラベル強調）をどう組み込むべきでしょうか？</span>
+      </li>
+      <li>
+        <span class="oq-num">3</span>
+        <span class="oq-text"><b>波形の情報量 vs 存在感：</b>波形は「音が入っている」を確認するものですが、視覚的に目を引きすぎる可能性もあります。録音中のフォーカスは文字起こし側にあるはずです。波形をどの程度目立たせるべきでしょうか？</span>
+      </li>
+      <li>
+        <span class="oq-num">4</span>
+        <span class="oq-text"><b>話者が増えたときのスケーリング：</b>現在 3 話者まで色を定義しています。4 人以上の会議ではどうすべきでしょうか（色を増やす・グループ化・ループ）？色の上限とラベル体験を提案してください。</span>
+      </li>
+      <li>
+        <span class="oq-num">5</span>
+        <span class="oq-text"><b>仮文字起こし（Hypothesis）の見せ方：</b>現在リアルタイムに確定前テキストがカーソル付きで流れています。これが「入力中」なのか「AI が考え中」なのかが区別しにくいかもしれません。どのように表現すると良いでしょうか？</span>
+      </li>
+      <li>
+        <span class="oq-num">6</span>
+        <span class="oq-text"><b>中間テーマの要否：</b>現在 Console（ダーク）/ Manuscript（ライト）の2択のみです。高コントラストモードや、Pindrop / SuperIntern のような「彩度をさらに絞った第3の外観」を追加する価値はあるでしょうか（<code>DESIGN.md</code> Known Gaps 参照）？</span>
+      </li>
+    </ul>
+  </section>
+
+  <!-- ===== FEEDBACK AREAS ===== -->
+  <section>
+    <h2>フィードバック領域</h2>
+    <p class="section-sub">以下の各エリアについて Issue / PR / コメントでフィードバックをどうぞ</p>
+    <div class="feedback-grid">
+      <div class="feedback-box">
+        <h4>🎨 カラーパレット</h4>
+        <p>ライト（Manuscript）・ダーク（Console）それぞれのトーン、アクセント色、話者色のセット。WCAG コントラスト比や長時間使用時の疲労感についてのご意見を。</p>
+        <span class="hint">例: "ダークの録音赤がまだ強い" / "ライトの藍色はもう少し明るくて良い"</span>
+      </div>
+      <div class="feedback-box">
+        <h4>📐 レイアウトと情報密度</h4>
+        <p>サイドバー幅・コントロールバーの高さ・トランスクリプトの行間・読み幅制限（Manuscript の max-width: 640px）などの空間設計。</p>
+        <span class="hint">例: "サイドバーは隠せる方が良い" / "コントロール部分が大きすぎる"</span>
+      </div>
+      <div class="feedback-box">
+        <h4>〰️ 波形デザイン</h4>
+        <p>Voice Memos 風の棒グラフ波形について。視覚的な存在感・サイズ・Mic / System / Both の切り替え体験。代替案（ルーメーター・スペクトル・ライン波形など）のアイデアも歓迎。</p>
+        <span class="hint">例: "Both のとき上下が逆の方が直感的" / "波形は折りたたみ可能にすべき"</span>
+      </div>
+      <div class="feedback-box">
+        <h4>👤 話者 UI</h4>
+        <p>Speaker A / B ラベル・話者ピン（色丸）・タイムスタンプ位置・話者リネームフロー（未実装）。色弱対応のアイデアも。</p>
+        <span class="hint">例: "名前が長いとき省略ルールが必要" / "話者クリックで詳細ポップオーバーを出すべき"</span>
+      </div>
+      <div class="feedback-box">
+        <h4>🌐 翻訳表示</h4>
+        <p>原文→訳の表示順、訳の文字サイズ・色・左ボーダーによるグループ化。多言語ペアの切り替え UI（JA⇄EN 以外）。</p>
+        <span class="hint">例: "訳をトグルで全体 on/off したい" / "言語ペア切替はもっと目立つ場所に"</span>
+      </div>
+      <div class="feedback-box">
+        <h4>📚 DESIGN.md への反映度</h4>
+        <p>Pindrop / SuperIntern / ElevenLabs / Linear / aeru からの学びが、このモックに十分反映されているか。「洗練された」と感じる点・まだ物足りない点を <code>DESIGN.md</code> の Reference Inspirations と照らして。</p>
+        <span class="hint">例: "アクセント制限はもっと徹底できる" / "Manuscript の朱がまだ弱い"</span>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top: 24px;">
+      <b>フィードバックの送り方：</b>
+      GitHub Issues（ラベル <code>design</code>）に投稿するか、このファイルを直接編集して PR を送ってください。Figma ファイルを作成した場合はリンクを Issue に貼り付けていただけると助かります。
+    </div>
+  </section>
+
+  <!-- ===== TECH CONSTRAINTS ===== -->
+  <section>
+    <h2>実装上の制約（デザイン参考情報）</h2>
+    <p class="section-sub">デザイン提案の際に考慮していただきたい技術的な枠組み</p>
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon">🍎</div>
+        <h3>SwiftUI + macOS 15+</h3>
+        <p>UIKit は使わず SwiftUI のみ。macOS 15 以降の API のみ使用可能。iOS / iPadOS 対応は計画していない（macOS 専用）。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🧱</div>
+        <h3>NavigationSplitView 構成</h3>
+        <p>macOS 標準の 2 / 3 ペイン構成を前提としています。サイドバー・コンテンツエリア・インスペクタの 3 列が最大。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">⚡</div>
+        <h3>AVAudioEngine でリアルタイム処理</h3>
+        <p>Phase 1 はマイク入力のみ AVAudioEngine で処理。Phase 2 以降は SCStream でシステム音声も取得。UI はバッファ単位の更新に対応する必要あり。</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🤖</div>
+        <h3>WhisperKit / SpeakerKit（オンデバイス）</h3>
+        <p>文字起こしは WhisperKit、話者識別は SpeakerKit を使用。レイテンシが数百 ms〜数秒あるため、「仮文字起こし（Hypothesis）」→「確定文字起こし」の 2 段階表示が必要。</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>sokki プロジェクト · <a href="../../DESIGN.md">デザインシステム（DESIGN.md）</a> · <a href="../../spec.md">アーキテクチャ仕様（spec.md）</a> · <a href="../../requirements.md">要件定義（requirements.md）</a> · <a href="../../docs/roadmap.md">ロードマップ</a></p>
+    <p style="margin-top:8px;">このファイルは <code>docs/design/recording-view-v3.html</code> に配置されています。旧版は <code>recording-view-v2.html</code>。ブラウザで直接開いてください。</p>
+  </footer>
+
+</div>
+
+<script>
+  /* ========== Mockup render ========== */
+  const SEGMENTS = [
+    { spk: "Speaker A", pin: "var(--spk-a)", ts: "00:08", orig: "来週のリリースですが、QA の進捗はどうですか？", trans: "About next week's release — how's the QA going?" },
+    { spk: "Speaker B", pin: "var(--spk-b)", ts: "00:15", orig: "主要なシナリオは通りました。残りは決済まわりの確認だけです。", trans: "The main scenarios pass. Only the payment-flow checks remain." },
+    { spk: "Speaker A", pin: "var(--spk-a)", ts: "00:24", orig: "では金曜の朝に最終確認しましょう。", trans: "Then let's do the final check on Friday morning." },
+  ];
+  const HYP = { spk: "Speaker B", pin: "var(--spk-b)", ts: "00:31", text: "あと、ドキュメントの更新も…" };
+
+  function symBars(seed) {
+    let html = ""; const n = 110;
+    for (let i = 0; i < n; i++) {
+      const env = Math.pow(Math.abs(Math.sin((i + seed) * 0.16)), 1.3) * 0.85 + 0.05;
+      const detail = 0.55 + 0.45 * Math.abs(Math.sin((i * 1.9 + seed) * 1.3));
+      const h = Math.max(5, Math.min(100, env * detail * 125));
+      html += `<i style="height:${h.toFixed(0)}%"></i>`;
+    }
+    return html;
+  }
+  function dualBars() {
+    let html = ""; const n = 110;
+    for (let i = 0; i < n; i++) {
+      const micEnv = Math.pow(Math.abs(Math.sin((i + 3) * 0.16)), 1.3) * 0.85 + 0.05;
+      const micDet = 0.55 + 0.45 * Math.abs(Math.sin((i * 1.9 + 3) * 1.3));
+      const mic = Math.max(4, Math.min(100, micEnv * micDet * 125));
+      const sysEnv = Math.pow(Math.abs(Math.sin((i + 9) * 0.13)), 1.4) * 0.7 + 0.04;
+      const sysDet = 0.5 + 0.5 * Math.abs(Math.sin((i * 2.3 + 9) * 1.1));
+      const sys = Math.max(4, Math.min(100, sysEnv * sysDet * 110));
+      html += `<span class="col"><span class="u"><i style="height:${mic.toFixed(0)}%"></i></span><span class="d"><i style="height:${sys.toFixed(0)}%"></i></span></span>`;
+    }
+    return html;
+  }
+  function waveBandInner(mode) {
+    if (mode === "both") {
+      return `<div class="wave-legend"><span><i class="m"></i>マイク</span><span><i class="s"></i>システム</span></div><div class="wave-dual">${dualBars()}</div>`;
+    }
+    const isSys = mode === "system";
+    const cls = isSys ? "sys" : "mic";
+    const cap = isSys ? "システム音声" : "マイク入力";
+    return `<div class="wave-cap ${cls}"><i></i>${cap}</div><div class="wave-vm ${cls}">${symBars(3)}</div>`;
+  }
+  function spkHead(s) {
+    return `<span class="spk"><span class="pin" style="background:${s.pin}"></span><span class="unnamed">${s.spk}</span><span class="ts">${s.ts}</span></span>`;
+  }
+  function rvHTML() {
+    const segs = SEGMENTS.map(s => `
+      <div class="line has-trans">
+        ${spkHead(s)}
+        <div class="orig">${s.orig}</div>
+        <div class="trans">${s.trans}</div>
+      </div>`).join("");
+    return `
+      <div class="rv-top">
+        <div class="segment">
+          <span class="on" data-mode="mic" role="button" tabindex="0">Mic</span>
+          <span data-mode="system" role="button" tabindex="0">System</span>
+          <span data-mode="both" role="button" tabindex="0">Both</span>
+        </div>
+        <div class="top-right">
+          <span class="chip local"><span class="dot"></span>オンデバイス</span>
+          <span class="toggle">翻訳<span class="sw"></span><span class="lang">JA→EN</span></span>
+        </div>
+      </div>
+      <div class="wave-band" data-band>${waveBandInner('mic')}</div>
+      <div class="transcript">
+        ${segs}
+        <div class="line">${spkHead(HYP)}<div class="hyp">${HYP.text}</div></div>
+      </div>
+      <div class="controls">
+        <div class="tc"><span class="rec-dot"></span>03:42</div>
+        <div class="rec-btn recording"><span class="glyph"></span></div>
+        <div class="spacer">自動保存</div>
+      </div>`;
+  }
+  document.querySelectorAll(".rv").forEach(el => { el.innerHTML = rvHTML(); });
+  document.querySelectorAll(".win").forEach(win => {
+    const band = win.querySelector("[data-band]");
+    const spans = win.querySelectorAll(".segment span");
+    const select = (sp) => {
+      spans.forEach(x => x.classList.remove("on"));
+      sp.classList.add("on");
+      band.innerHTML = waveBandInner(sp.dataset.mode);
+    };
+    spans.forEach(sp => {
+      sp.addEventListener("click", () => select(sp));
+      sp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(sp); }
+      });
+    });
+  });
+</script>
+
+</body>
+</html>
