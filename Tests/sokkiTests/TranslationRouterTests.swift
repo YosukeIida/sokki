@@ -13,7 +13,7 @@ struct TranslationRouterTests {
         enabled: Bool = true,
         preferred: TranslationProviderKind = .auto,
         privacy: Bool = false,
-        keys: Set<TranslationProviderKind> = [],
+        registered: Set<TranslationProviderKind> = [],
         order: [TranslationProviderKind] = [.geminiLive, .googleCloudV3, .deepL]
     ) -> RoutingContext {
         RoutingContext(
@@ -22,7 +22,7 @@ struct TranslationRouterTests {
             source: ja,
             target: en,
             privacyMode: privacy,
-            availableKeys: keys,
+            registeredCloudKinds: registered,
             cloudPreferenceOrder: order
         )
     }
@@ -63,17 +63,17 @@ struct TranslationRouterTests {
         #expect(d.unavailableReason == "Apple 未対応の言語ペア")
     }
 
-    @Test("明示 BYO は key の有無に依らず route だけ返す（#4: key 判定は Gate）")
+    @Test("明示 BYO は登録有無に依らず route だけ返す（#4: key 判定は Gate）")
     func explicitBYORouteOnly() async {
-        // key なし
-        let noKey = await router(.installed).resolve(ctx(preferred: .deepL, keys: []))
-        #expect(noKey.kind == .deepL)
-        #expect(noKey.isOnDevice == false)
-        #expect(noKey.isUserExplicitChoice == true)
-        #expect(noKey.unavailableReason == nil)   // Router は「APIキー未設定」を返さない
-        // key あり
-        let withKey = await router(.installed).resolve(ctx(preferred: .deepL, keys: [.deepL]))
-        #expect(withKey.unavailableReason == nil)
+        // 未登録扱いでも Router は route を返す（key/登録の判定は Router の責務外）。
+        let notRegistered = await router(.installed).resolve(ctx(preferred: .deepL, registered: []))
+        #expect(notRegistered.kind == .deepL)
+        #expect(notRegistered.isOnDevice == false)
+        #expect(notRegistered.isUserExplicitChoice == true)
+        #expect(notRegistered.unavailableReason == nil)   // Router は「APIキー未設定」を返さない
+        // 登録あり
+        let registered = await router(.installed).resolve(ctx(preferred: .deepL, registered: [.deepL]))
+        #expect(registered.unavailableReason == nil)
     }
 
     @Test("auto + Apple installed → Apple 採用（自動FBに行かない）")
@@ -84,23 +84,23 @@ struct TranslationRouterTests {
         #expect(d.unavailableReason == nil)
     }
 
-    @Test("auto + Apple 未対応 + key あり → 優先順の先頭クラウドへ自動FB（explicit=false）")
+    @Test("auto + Apple 未対応 → 優先順の先頭『登録済み』クラウドへ自動FB（key は見ない）")
     func autoFallbackToCloud() async {
         let d = await router(.unsupported).resolve(
-            ctx(preferred: .auto, keys: [.googleCloudV3, .deepL],
+            ctx(preferred: .auto, registered: [.googleCloudV3, .deepL],
                 order: [.geminiLive, .googleCloudV3, .deepL])
         )
-        // geminiLive は key 無し → 次の googleCloudV3 が選ばれる
+        // geminiLive は未登録 → 次の googleCloudV3 が選ばれる（キー有無は Gate が後段で判定）
         #expect(d.kind == .googleCloudV3)
         #expect(d.isOnDevice == false)
         #expect(d.isUserExplicitChoice == false)   // 自動FB は明示選択ではない
         #expect(d.unavailableReason == nil)
     }
 
-    @Test("auto + Apple 未対応 + key なし → 不能（原文のみ）")
-    func autoFallbackNoKey() async {
-        let d = await router(.unsupported).resolve(ctx(preferred: .auto, keys: []))
+    @Test("auto + Apple 未対応 + クラウド未登録 → 不能（原文のみ）")
+    func autoFallbackNoCloudRegistered() async {
+        let d = await router(.unsupported).resolve(ctx(preferred: .auto, registered: []))
         #expect(d.isOnDevice == true)
-        #expect(d.unavailableReason == "オンデバイス未対応。BYO キーを設定すると翻訳できます")
+        #expect(d.unavailableReason == "オンデバイス未対応。BYO 翻訳プロバイダが未登録です")
     }
 }
