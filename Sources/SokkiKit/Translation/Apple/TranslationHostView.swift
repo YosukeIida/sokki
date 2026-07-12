@@ -63,7 +63,7 @@ public struct TranslationHostView: View {
             // `sending` で closure region ごと移し、インスタンスメソッド経由の region 分割を避ける）。
             .translationTask(bridge.configuration) { @Sendable session in
                 await TranslationSessionBridge.runDrainLoop(
-                    messages: bridge.hostMessages,
+                    bridge: bridge,
                     session: LiveTranslationSession(session: session)
                 )
             }
