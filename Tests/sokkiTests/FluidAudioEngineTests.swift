@@ -61,17 +61,15 @@ struct FluidAudioEngineTests {
     @Test("FluidAudio の 256 次元 embedding を L2 正規化して返す")
     func mapsNormalizedEmbedding() async throws {
         let rawEmbedding = (1...FluidAudioEngine.embeddingDimension).map(Float.init)
-        let upstream = FluidAudio.DiarizationResult(
-            segments: [
-                TimedSpeakerSegment(
-                    speakerId: "S1",
-                    embedding: rawEmbedding,
-                    startTimeSeconds: 1.25,
-                    endTimeSeconds: 3.5,
-                    qualityScore: 0.9
-                )
-            ]
-        )
+        let upstream = [
+            TimedSpeakerSegment(
+                speakerId: "S1",
+                embedding: rawEmbedding,
+                startTimeSeconds: 1.25,
+                endTimeSeconds: 3.5,
+                qualityScore: 0.9
+            )
+        ]
         let engine = FluidAudioEngine(manager: MockFluidAudioManager(result: upstream))
 
         try await engine.prepare()
@@ -90,17 +88,15 @@ struct FluidAudioEngineTests {
 
     @Test("embedding 次元の不一致を明示的に拒否する")
     func rejectsUnexpectedEmbeddingDimension() async throws {
-        let upstream = FluidAudio.DiarizationResult(
-            segments: [
-                TimedSpeakerSegment(
-                    speakerId: "S1",
-                    embedding: [1, 0],
-                    startTimeSeconds: 0,
-                    endTimeSeconds: 1,
-                    qualityScore: 1
-                )
-            ]
-        )
+        let upstream = [
+            TimedSpeakerSegment(
+                speakerId: "S1",
+                embedding: [1, 0],
+                startTimeSeconds: 0,
+                endTimeSeconds: 1,
+                qualityScore: 1
+            )
+        ]
         let engine = FluidAudioEngine(manager: MockFluidAudioManager(result: upstream))
         try await engine.prepare()
 
@@ -123,12 +119,12 @@ private enum StubError: Error {
 private actor MockFluidAudioManager: FluidAudioManaging {
     let prepareError: (any Error)?
     let processError: (any Error)?
-    let result: FluidAudio.DiarizationResult
+    let result: [TimedSpeakerSegment]
 
     init(
         prepareError: (any Error)? = nil,
         processError: (any Error)? = nil,
-        result: FluidAudio.DiarizationResult = .init(segments: [])
+        result: [TimedSpeakerSegment] = []
     ) {
         self.prepareError = prepareError
         self.processError = processError
@@ -139,7 +135,7 @@ private actor MockFluidAudioManager: FluidAudioManaging {
         if let prepareError { throw prepareError }
     }
 
-    func process(audio: [Float]) throws -> FluidAudio.DiarizationResult {
+    func process(audio: [Float]) throws -> [TimedSpeakerSegment] {
         if let processError { throw processError }
         result
     }

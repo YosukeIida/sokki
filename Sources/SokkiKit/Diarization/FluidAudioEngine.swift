@@ -4,7 +4,7 @@ import Foundation
 /// The narrow actor boundary around FluidAudio's non-Sendable manager.
 protocol FluidAudioManaging: Sendable {
     func prepareModels() async throws
-    func process(audio: [Float]) async throws -> FluidAudio.DiarizationResult
+    func process(audio: [Float]) async throws -> [TimedSpeakerSegment]
 }
 
 /// `OfflineDiarizerManager` contains Core ML reference types. Keeping it inside this actor
@@ -20,8 +20,8 @@ private actor FluidAudioManagerAdapter: FluidAudioManaging {
         try await manager.prepareModels()
     }
 
-    func process(audio: [Float]) async throws -> FluidAudio.DiarizationResult {
-        try await manager.process(audio: audio)
+    func process(audio: [Float]) async throws -> [TimedSpeakerSegment] {
+        try await manager.process(audio: audio).segments
     }
 }
 
@@ -53,14 +53,14 @@ actor FluidAudioEngine: DiarizationEngine {
     func diarize(audioArray: [Float]) async throws -> DiarizationResult {
         guard isReady else { throw DiarizationEngineError.notPrepared }
 
-        let result: FluidAudio.DiarizationResult
+        let upstreamSegments: [TimedSpeakerSegment]
         do {
-            result = try await manager.process(audio: audioArray)
+            upstreamSegments = try await manager.process(audio: audioArray)
         } catch {
             throw DiarizationEngineError.diarizationFailed(underlying: error)
         }
 
-        let segments = try result.segments.map { segment in
+        let segments: [DiarizationSegment] = try upstreamSegments.map { segment in
             guard segment.embedding.count == Self.embeddingDimension else {
                 throw DiarizationEngineError.invalidEmbedding(
                     expected: Self.embeddingDimension,
@@ -78,7 +78,7 @@ actor FluidAudioEngine: DiarizationEngine {
 
         return DiarizationResult(
             segments: segments,
-            numberOfSpeakers: Set(segments.map(\.speakerID)).count
+            numberOfSpeakers: Set<String>(segments.map { $0.speakerID }).count
         )
     }
 }
