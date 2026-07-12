@@ -3,7 +3,8 @@ import CoreAudio
 
 /// システム音声キャプチャ（Core Audio Process Tap / macOS 14.2+）の生成失敗を表すエラー。
 /// 失敗した Core Audio API の `OSStatus` を保持し、呼び出し元がログ・利用者通知に使えるようにする。
-enum SystemAudioTapError: Error {
+enum SystemAudioTapError: Error, Equatable {
+    case alreadyStarted
     case processTapCreationFailed(OSStatus)
     case defaultOutputDeviceUnavailable(OSStatus)
     case outputDeviceUIDUnavailable(OSStatus)
@@ -25,9 +26,30 @@ protocol SystemAudioTapping: Sendable {
     func stop()
 }
 
+/// 生の Core Audio C API を注入可能にする薄いラッパー。実装（`DefaultCoreAudioTapSystem`）は
+/// C API へ委譲し、テストは呼び出し順序と各段階の失敗を制御するフェイクを注入する。
+/// これにより `SystemAudioTap` の生成／解放シーケンスを Core Audio 実機なしで検証できる。
+protocol CoreAudioTapSystem: Sendable {
+    func createProcessTap(_ description: CATapDescription) -> (status: OSStatus, tapID: AudioObjectID)
+    func defaultSystemOutputDeviceUID() -> (status: OSStatus, uid: String?)
+    func tapStreamFormat(tapID: AudioObjectID) -> (status: OSStatus, format: AVAudioFormat?)
+    func createAggregateDevice(_ description: CFDictionary) -> (status: OSStatus, deviceID: AudioObjectID)
+    func createIOProcID(
+        deviceID: AudioObjectID,
+        queue: DispatchQueue,
+        ioBlock: @escaping AudioDeviceIOBlock
+    ) -> (status: OSStatus, procID: AudioDeviceIOProcID?)
+    func startDevice(deviceID: AudioObjectID, procID: AudioDeviceIOProcID) -> OSStatus
+    func stopDevice(deviceID: AudioObjectID, procID: AudioDeviceIOProcID)
+    func destroyIOProcID(deviceID: AudioObjectID, procID: AudioDeviceIOProcID)
+    func destroyAggregateDevice(deviceID: AudioObjectID)
+    func destroyProcessTap(tapID: AudioObjectID)
+}
+
 /// Core Audio Process Tap によるシステム音声キャプチャの実プラミング。
 ///
 /// tap 生成 → aggregate device 生成 → IOProc 起動 → 解放（逆順）の全ライフサイクルを担う。
+/// 生の Core Audio 呼び出しは `CoreAudioTapSystem` に委譲する（テスト注入のため）。
 /// IO ブロックはアクター（`AudioCaptureManager`）を捕捉せず、`IOContext`（変換器・フォーマット・
 /// yield クロージャを閉じ込めた不変オブジェクト）だけを捕捉する。`AVAudioConverter` は IO キューに
 /// 閉じ込め、アクター境界を越えるのは変換後の `[Float]` のみ。
@@ -73,6 +95,7 @@ final class SystemAudioTap: SystemAudioTapping, @unchecked Sendable {
         }
     }
 
+    private let coreAudio: CoreAudioTapSystem
     private let lock = NSLock()
     private let ioQueue = DispatchQueue(
         label: "com.yosukeiida.sokki.SystemAudioTap.io",
@@ -85,7 +108,9 @@ final class SystemAudioTap: SystemAudioTapping, @unchecked Sendable {
     private var deviceProcID: AudioDeviceIOProcID?
     private var ioContext: IOContext?
 
-    init() {}
+    init(coreAudio: CoreAudioTapSystem = DefaultCoreAudioTapSystem()) {
+        self.coreAudio = coreAudio
+    }
 
     deinit {
         stop()
@@ -97,6 +122,13 @@ final class SystemAudioTap: SystemAudioTapping, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
+        // 二重 start はリソースリークになるため拒否する（呼び出し側は stop してから start する契約）。
+        guard ioContext == nil,
+              aggregateDeviceID == AudioObjectID(kAudioObjectUnknown),
+              tapID == AudioObjectID(kAudioObjectUnknown) else {
+            throw SystemAudioTapError.alreadyStarted
+        }
+
         // 1. tap 記述（全プロセスのステレオグローバルタップ。除外プロセスは無し）
         let tapDescription = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
         tapDescription.uuid = UUID()
@@ -105,15 +137,17 @@ final class SystemAudioTap: SystemAudioTapping, @unchecked Sendable {
         tapDescription.name = "sokki System Audio Tap"
 
         // 2. process tap 生成
-        var newTapID = AudioObjectID(kAudioObjectUnknown)
-        var status = AudioHardwareCreateProcessTap(tapDescription, &newTapID)
-        guard status == noErr else {
-            throw SystemAudioTapError.processTapCreationFailed(status)
+        let (tapStatus, newTapID) = coreAudio.createProcessTap(tapDescription)
+        guard tapStatus == noErr, newTapID != AudioObjectID(kAudioObjectUnknown) else {
+            throw SystemAudioTapError.processTapCreationFailed(tapStatus)
         }
 
         do {
             // 3. 既定システム出力デバイスの UID を読み取る（aggregate の main sub-device 用）
-            let outputUID = try Self.readDefaultSystemOutputDeviceUID()
+            let (uidStatus, outputUID) = coreAudio.defaultSystemOutputDeviceUID()
+            guard uidStatus == noErr, let outputUID else {
+                throw SystemAudioTapError.defaultOutputDeviceUnavailable(uidStatus)
+            }
 
             // 4. aggregate device 記述辞書を構築（tap の UUID 文字列を使う。tapID 整数ではない）
             let aggregateUID = UUID().uuidString
@@ -124,56 +158,67 @@ final class SystemAudioTap: SystemAudioTapping, @unchecked Sendable {
             )
 
             // 5. tap のストリームフォーマットを読む（辞書構築の後・aggregate 生成の前）
-            let tapFormat = try Self.readTapStreamFormat(tapID: newTapID)
+            let (formatStatus, tapFormat) = coreAudio.tapStreamFormat(tapID: newTapID)
+            guard formatStatus == noErr else {
+                throw SystemAudioTapError.tapStreamFormatUnavailable(formatStatus)
+            }
+            guard let tapFormat else {
+                throw SystemAudioTapError.tapStreamFormatInvalid
+            }
 
             // 6. aggregate device 生成
-            var newAggregateID = AudioObjectID(kAudioObjectUnknown)
-            status = AudioHardwareCreateAggregateDevice(description as CFDictionary, &newAggregateID)
-            guard status == noErr else {
-                throw SystemAudioTapError.aggregateDeviceCreationFailed(status)
+            let (aggStatus, newAggregateID) = coreAudio.createAggregateDevice(description as CFDictionary)
+            guard aggStatus == noErr, newAggregateID != AudioObjectID(kAudioObjectUnknown) else {
+                throw SystemAudioTapError.aggregateDeviceCreationFailed(aggStatus)
             }
 
-            // 7. 変換器（tapFormat → 16kHz mono）と IO コンテキスト
-            let targetFormat = AudioSampleConversion.makeTargetFormat()
-            guard let converter = AVAudioConverter(from: tapFormat, to: targetFormat) else {
-                AudioHardwareDestroyAggregateDevice(newAggregateID)
-                throw SystemAudioTapError.converterUnavailable
-            }
-            let context = IOContext(
-                converter: converter,
-                tapFormat: tapFormat,
-                targetFormat: targetFormat,
-                onSamples: onSamples
-            )
+            do {
+                // 7. 変換器（tapFormat → 16kHz mono）と IO コンテキスト
+                let targetFormat = AudioSampleConversion.makeTargetFormat()
+                guard let converter = AVAudioConverter(from: tapFormat, to: targetFormat) else {
+                    throw SystemAudioTapError.converterUnavailable
+                }
+                let context = IOContext(
+                    converter: converter,
+                    tapFormat: tapFormat,
+                    targetFormat: targetFormat,
+                    onSamples: onSamples
+                )
 
-            // 8. IOProc 登録（専用 IO キュー）
-            var newProcID: AudioDeviceIOProcID?
-            status = AudioDeviceCreateIOProcIDWithBlock(
-                &newProcID, newAggregateID, ioQueue
-            ) { _, inInputData, _, _, _ in
-                context.process(inInputData)
-            }
-            guard status == noErr, let procID = newProcID else {
-                AudioHardwareDestroyAggregateDevice(newAggregateID)
-                throw SystemAudioTapError.ioProcCreationFailed(status)
-            }
+                // 8. IOProc 登録（専用 IO キュー）
+                let (procStatus, newProcID) = coreAudio.createIOProcID(
+                    deviceID: newAggregateID,
+                    queue: ioQueue
+                ) { _, inInputData, _, _, _ in
+                    context.process(inInputData)
+                }
+                guard procStatus == noErr, let procID = newProcID else {
+                    throw SystemAudioTapError.ioProcCreationFailed(procStatus)
+                }
 
-            // 9. 開始
-            status = AudioDeviceStart(newAggregateID, procID)
-            guard status == noErr else {
-                AudioDeviceDestroyIOProcID(newAggregateID, procID)
-                AudioHardwareDestroyAggregateDevice(newAggregateID)
-                throw SystemAudioTapError.deviceStartFailed(status)
-            }
+                do {
+                    // 9. 開始
+                    let startStatus = coreAudio.startDevice(deviceID: newAggregateID, procID: procID)
+                    guard startStatus == noErr else {
+                        throw SystemAudioTapError.deviceStartFailed(startStatus)
+                    }
 
-            // 成功: ハンドルを保持
-            tapID = newTapID
-            aggregateDeviceID = newAggregateID
-            deviceProcID = procID
-            ioContext = context
+                    // 成功: ハンドルを保持
+                    tapID = newTapID
+                    aggregateDeviceID = newAggregateID
+                    deviceProcID = procID
+                    ioContext = context
+                } catch {
+                    coreAudio.destroyIOProcID(deviceID: newAggregateID, procID: procID)
+                    throw error
+                }
+            } catch {
+                coreAudio.destroyAggregateDevice(deviceID: newAggregateID)
+                throw error
+            }
         } catch {
             // tap 以降で失敗した場合は tap を解放して巻き戻す
-            AudioHardwareDestroyProcessTap(newTapID)
+            coreAudio.destroyProcessTap(tapID: newTapID)
             throw error
         }
     }
@@ -184,14 +229,14 @@ final class SystemAudioTap: SystemAudioTapping, @unchecked Sendable {
 
         // 解放は生成の逆順: Stop → DestroyIOProcID → DestroyAggregateDevice → DestroyProcessTap
         if aggregateDeviceID != AudioObjectID(kAudioObjectUnknown), let procID = deviceProcID {
-            AudioDeviceStop(aggregateDeviceID, procID)
-            AudioDeviceDestroyIOProcID(aggregateDeviceID, procID)
+            coreAudio.stopDevice(deviceID: aggregateDeviceID, procID: procID)
+            coreAudio.destroyIOProcID(deviceID: aggregateDeviceID, procID: procID)
         }
         if aggregateDeviceID != AudioObjectID(kAudioObjectUnknown) {
-            AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+            coreAudio.destroyAggregateDevice(deviceID: aggregateDeviceID)
         }
         if tapID != AudioObjectID(kAudioObjectUnknown) {
-            AudioHardwareDestroyProcessTap(tapID)
+            coreAudio.destroyProcessTap(tapID: tapID)
         }
         deviceProcID = nil
         aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
@@ -229,11 +274,19 @@ final class SystemAudioTap: SystemAudioTapping, @unchecked Sendable {
             ],
         ]
     }
+}
 
-    // MARK: - Core Audio property helpers
+/// `CoreAudioTapSystem` の実装。生の Core Audio C API へ委譲するだけの薄い層。
+/// 状態を持たない値型なので `Sendable`。
+struct DefaultCoreAudioTapSystem: CoreAudioTapSystem {
 
-    /// 既定のシステム出力デバイスの UID を読む。
-    private static func readDefaultSystemOutputDeviceUID() throws -> String {
+    func createProcessTap(_ description: CATapDescription) -> (status: OSStatus, tapID: AudioObjectID) {
+        var tapID = AudioObjectID(kAudioObjectUnknown)
+        let status = AudioHardwareCreateProcessTap(description, &tapID)
+        return (status, tapID)
+    }
+
+    func defaultSystemOutputDeviceUID() -> (status: OSStatus, uid: String?) {
         var deviceAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultSystemOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -246,7 +299,7 @@ final class SystemAudioTap: SystemAudioTapping, @unchecked Sendable {
             &deviceAddress, 0, nil, &deviceSize, &deviceID
         )
         guard status == noErr, deviceID != AudioObjectID(kAudioObjectUnknown) else {
-            throw SystemAudioTapError.defaultOutputDeviceUnavailable(status)
+            return (status == noErr ? OSStatus(kAudioHardwareBadDeviceError) : status, nil)
         }
 
         var uidAddress = AudioObjectPropertyAddress(
@@ -256,17 +309,14 @@ final class SystemAudioTap: SystemAudioTapping, @unchecked Sendable {
         )
         var uid: CFString = "" as CFString
         var uidSize = UInt32(MemoryLayout<CFString>.size)
-        status = withUnsafeMutablePointer(to: &uid) { ptr in
-            AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, ptr)
+        status = withUnsafeMutablePointer(to: &uid) { pointer in
+            AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, pointer)
         }
-        guard status == noErr else {
-            throw SystemAudioTapError.outputDeviceUIDUnavailable(status)
-        }
-        return uid as String
+        guard status == noErr else { return (status, nil) }
+        return (noErr, uid as String)
     }
 
-    /// tap のストリームフォーマット（`kAudioTapPropertyFormat`）を `AVAudioFormat` として読む。
-    private static func readTapStreamFormat(tapID: AudioObjectID) throws -> AVAudioFormat {
+    func tapStreamFormat(tapID: AudioObjectID) -> (status: OSStatus, format: AVAudioFormat?) {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioTapPropertyFormat,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -275,12 +325,43 @@ final class SystemAudioTap: SystemAudioTapping, @unchecked Sendable {
         var asbd = AudioStreamBasicDescription()
         var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
         let status = AudioObjectGetPropertyData(tapID, &address, 0, nil, &size, &asbd)
-        guard status == noErr else {
-            throw SystemAudioTapError.tapStreamFormatUnavailable(status)
-        }
-        guard let format = AVAudioFormat(streamDescription: &asbd) else {
-            throw SystemAudioTapError.tapStreamFormatInvalid
-        }
-        return format
+        guard status == noErr else { return (status, nil) }
+        return (noErr, AVAudioFormat(streamDescription: &asbd))
+    }
+
+    func createAggregateDevice(_ description: CFDictionary) -> (status: OSStatus, deviceID: AudioObjectID) {
+        var deviceID = AudioObjectID(kAudioObjectUnknown)
+        let status = AudioHardwareCreateAggregateDevice(description, &deviceID)
+        return (status, deviceID)
+    }
+
+    func createIOProcID(
+        deviceID: AudioObjectID,
+        queue: DispatchQueue,
+        ioBlock: @escaping AudioDeviceIOBlock
+    ) -> (status: OSStatus, procID: AudioDeviceIOProcID?) {
+        var procID: AudioDeviceIOProcID?
+        let status = AudioDeviceCreateIOProcIDWithBlock(&procID, deviceID, queue, ioBlock)
+        return (status, procID)
+    }
+
+    func startDevice(deviceID: AudioObjectID, procID: AudioDeviceIOProcID) -> OSStatus {
+        AudioDeviceStart(deviceID, procID)
+    }
+
+    func stopDevice(deviceID: AudioObjectID, procID: AudioDeviceIOProcID) {
+        AudioDeviceStop(deviceID, procID)
+    }
+
+    func destroyIOProcID(deviceID: AudioObjectID, procID: AudioDeviceIOProcID) {
+        AudioDeviceDestroyIOProcID(deviceID, procID)
+    }
+
+    func destroyAggregateDevice(deviceID: AudioObjectID) {
+        AudioHardwareDestroyAggregateDevice(deviceID)
+    }
+
+    func destroyProcessTap(tapID: AudioObjectID) {
+        AudioHardwareDestroyProcessTap(tapID)
     }
 }

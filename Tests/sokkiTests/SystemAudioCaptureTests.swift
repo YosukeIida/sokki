@@ -18,6 +18,12 @@ final class MockSystemAudioTap: SystemAudioTapping, @unchecked Sendable {
     var startCount: Int { lock.lock(); defer { lock.unlock() }; return _startCount }
     var stopCount: Int { lock.lock(); defer { lock.unlock() }; return _stopCount }
 
+    /// 現在保持している yield クロージャ（旧世代の混入テストで退避に使う）。
+    var capturedOnSamples: (@Sendable ([Float], Date) -> Void)? {
+        lock.lock(); defer { lock.unlock() }
+        return onSamples
+    }
+
     func setError(_ error: SystemAudioTapError?) {
         lock.lock(); defer { lock.unlock() }
         _errorToThrow = error
@@ -47,6 +53,94 @@ final class MockSystemAudioTap: SystemAudioTapping, @unchecked Sendable {
         lock.unlock()
         callback?(samples, date)
     }
+}
+
+/// `CoreAudioTapSystem` のフェイク。呼び出し順序を記録し、任意の段階で失敗させられる。
+/// Core Audio 実機に触れずに `SystemAudioTap` の生成／解放シーケンスを検証する。
+final class FakeCoreAudioTapSystem: CoreAudioTapSystem, @unchecked Sendable {
+
+    enum Call: Equatable {
+        case createProcessTap
+        case defaultOutputUID
+        case tapStreamFormat
+        case createAggregateDevice
+        case createIOProcID
+        case startDevice
+        case stopDevice
+        case destroyIOProcID
+        case destroyAggregateDevice
+        case destroyProcessTap
+    }
+
+    static let failStatus: OSStatus = -99
+    /// 破棄系呼び出しだけを抽出するためのフィルタ集合。
+    static let teardownCalls: Set<Call> = [
+        .stopDevice, .destroyIOProcID, .destroyAggregateDevice, .destroyProcessTap,
+    ]
+    /// C 関数ポインタへ変換できる非キャプチャの sentinel proc ID。
+    static let sentinelProcID: AudioDeviceIOProcID = { _, _, _, _, _, _, _ in noErr }
+
+    private let failAt: Call?
+    private let lock = NSLock()
+    private var _calls: [Call] = []
+
+    init(failAt: Call? = nil) {
+        self.failAt = failAt
+    }
+
+    var calls: [Call] { lock.lock(); defer { lock.unlock() }; return _calls }
+    var teardownSequence: [Call] { calls.filter { Self.teardownCalls.contains($0) } }
+
+    private func record(_ call: Call) {
+        lock.lock(); _calls.append(call); lock.unlock()
+    }
+
+    func createProcessTap(_ description: CATapDescription) -> (status: OSStatus, tapID: AudioObjectID) {
+        record(.createProcessTap)
+        return failAt == .createProcessTap
+            ? (Self.failStatus, AudioObjectID(kAudioObjectUnknown))
+            : (noErr, 100)
+    }
+
+    func defaultSystemOutputDeviceUID() -> (status: OSStatus, uid: String?) {
+        record(.defaultOutputUID)
+        return failAt == .defaultOutputUID ? (Self.failStatus, nil) : (noErr, "FakeOutputUID")
+    }
+
+    func tapStreamFormat(tapID: AudioObjectID) -> (status: OSStatus, format: AVAudioFormat?) {
+        record(.tapStreamFormat)
+        if failAt == .tapStreamFormat { return (Self.failStatus, nil) }
+        let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false
+        )!
+        return (noErr, format)
+    }
+
+    func createAggregateDevice(_ description: CFDictionary) -> (status: OSStatus, deviceID: AudioObjectID) {
+        record(.createAggregateDevice)
+        return failAt == .createAggregateDevice
+            ? (Self.failStatus, AudioObjectID(kAudioObjectUnknown))
+            : (noErr, 200)
+    }
+
+    func createIOProcID(
+        deviceID: AudioObjectID,
+        queue: DispatchQueue,
+        ioBlock: @escaping AudioDeviceIOBlock
+    ) -> (status: OSStatus, procID: AudioDeviceIOProcID?) {
+        record(.createIOProcID)
+        return failAt == .createIOProcID ? (Self.failStatus, nil) : (noErr, Self.sentinelProcID)
+    }
+
+    func startDevice(deviceID: AudioObjectID, procID: AudioDeviceIOProcID) -> OSStatus {
+        record(.startDevice)
+        return failAt == .startDevice ? Self.failStatus : noErr
+    }
+
+    func stopDevice(deviceID: AudioObjectID, procID: AudioDeviceIOProcID) { record(.stopDevice) }
+    func destroyIOProcID(deviceID: AudioObjectID, procID: AudioDeviceIOProcID) { record(.destroyIOProcID) }
+    func destroyAggregateDevice(deviceID: AudioObjectID) { record(.destroyAggregateDevice) }
+    func destroyProcessTap(tapID: AudioObjectID) { record(.destroyProcessTap) }
 }
 
 // MARK: - Aggregate device description builder
@@ -212,5 +306,92 @@ struct SystemAudioCaptureTests {
         await #expect(throws: AudioCaptureManager.CaptureError.self) {
             try await manager.startCapture(mode: .both)
         }
+    }
+
+    @Test("回帰: 停止後に遅延実行された旧世代の chunk は新 systemStream に混入しない")
+    func staleGenerationChunkIsDiscarded() async throws {
+        let mock = MockSystemAudioTap()
+        let manager = AudioCaptureManager(systemTap: mock)
+
+        // セッション1を開始し、その世代の yield クロージャを退避する。
+        try await manager.startCapture(mode: .systemOnly)
+        let staleClosure = try #require(mock.capturedOnSamples)
+        await manager.stopCapture()
+
+        // セッション2を開始（新しい世代・新しい systemStream）。
+        try await manager.startCapture(mode: .systemOnly)
+        let stream = await manager.systemStream
+
+        // 旧世代クロージャで chunk を流し込む（AudioDeviceStop 後に遅延実行された IO Task を再現）。
+        staleClosure(Array(repeating: 0.9, count: 99), Date())
+        // 現行世代の chunk を流す（判別のためサンプル数を変える）。
+        mock.send(Array(repeating: 0.1, count: 3))
+
+        var iterator = stream.makeAsyncIterator()
+        let chunk = await iterator.next()
+        // 最初に届く chunk は現行世代（count == 3）でなければならない。旧世代（99）は破棄される。
+        #expect(chunk?.samples.count == 3)
+
+        await manager.stopCapture()
+    }
+}
+
+// MARK: - SystemAudioTap lifecycle (injected Core Audio fake)
+
+@Suite("SystemAudioTap lifecycle")
+struct SystemAudioTapLifecycleTests {
+
+    @Test("正常 stop は Stop→DestroyIOProcID→DestroyAggregateDevice→DestroyProcessTap の順で解放する")
+    func teardownInReverseOrder() throws {
+        let fake = FakeCoreAudioTapSystem()
+        let tap = SystemAudioTap(coreAudio: fake)
+
+        try tap.start { _, _ in }
+        tap.stop()
+
+        #expect(fake.teardownSequence == [
+            .stopDevice, .destroyIOProcID, .destroyAggregateDevice, .destroyProcessTap,
+        ])
+    }
+
+    @Test("二重 start は alreadyStarted を throw し、既存リソースを再生成しない")
+    func doubleStartThrows() throws {
+        let fake = FakeCoreAudioTapSystem()
+        let tap = SystemAudioTap(coreAudio: fake)
+
+        try tap.start { _, _ in }
+        #expect(throws: SystemAudioTapError.alreadyStarted) {
+            try tap.start { _, _ in }
+        }
+        // 2 回目は guard で弾かれ Core Audio に一切触れない。
+        #expect(fake.calls.filter { $0 == .createProcessTap }.count == 1)
+
+        tap.stop()
+    }
+
+    @Test("aggregate 生成失敗時は生成済み tap のみを解放して throw する")
+    func rollbackOnAggregateFailure() {
+        let fake = FakeCoreAudioTapSystem(failAt: .createAggregateDevice)
+        let tap = SystemAudioTap(coreAudio: fake)
+
+        #expect(throws: SystemAudioTapError.aggregateDeviceCreationFailed(FakeCoreAudioTapSystem.failStatus)) {
+            try tap.start { _, _ in }
+        }
+        // process tap のみ生成済み → destroyProcessTap だけが呼ばれる。
+        #expect(fake.teardownSequence == [.destroyProcessTap])
+    }
+
+    @Test("開始失敗時は IOProc→AggregateDevice→ProcessTap の順で解放する（Stop は呼ばない）")
+    func rollbackOnStartFailure() {
+        let fake = FakeCoreAudioTapSystem(failAt: .startDevice)
+        let tap = SystemAudioTap(coreAudio: fake)
+
+        #expect(throws: SystemAudioTapError.deviceStartFailed(FakeCoreAudioTapSystem.failStatus)) {
+            try tap.start { _, _ in }
+        }
+        // 未起動なので Stop は呼ばず、生成済みリソースを逆順に破棄する。
+        #expect(fake.teardownSequence == [
+            .destroyIOProcID, .destroyAggregateDevice, .destroyProcessTap,
+        ])
     }
 }

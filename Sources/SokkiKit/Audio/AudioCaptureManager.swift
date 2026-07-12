@@ -44,6 +44,12 @@ actor AudioCaptureManager {
     /// システム音声キャプチャ（Core Audio Taps）。テストではモックを注入する。
     private let systemTap: SystemAudioTapping
 
+    /// 録音セッションの世代。start（resetStreams）ごとに採番し、IO コールバックから発火する
+    /// 非構造化 Task が採番時の世代を捕捉する。dispatch 時に現行世代と照合し、停止後に遅れて
+    /// 走った旧セッションのサンプルが新しい continuation へ混入するのを防ぐ（tap の IO ブロックや
+    /// AVAudioEngine の tap は stop 後も 1 回程度呼ばれうるため）。
+    private var captureGeneration: UInt64 = 0
+
     /// 録音ファイルの初期化・書き込みで発生した最新のエラー（容量不足など）。
     /// 音声認識自体は継続するため録音は止めないが、呼び出し元が利用者へ通知できるよう保持する（P1）。
     private(set) var recordingSaveError: Error?
@@ -98,6 +104,8 @@ actor AudioCaptureManager {
         systemLevelContinuation = sysLvlCont
         // 新しい録音セッションのために前回のエラー状態をリセットする
         recordingSaveError = nil
+        // 新しい世代を採番する。以降に発火する dispatch はこの世代でのみ配信される。
+        captureGeneration &+= 1
     }
 
     func stopCapture() async {
@@ -147,6 +155,7 @@ actor AudioCaptureManager {
             }
         }
         let writer = self.fileWriter
+        let generation = captureGeneration
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self else { return }
@@ -158,7 +167,7 @@ actor AudioCaptureManager {
             let converted = AudioSampleConversion.samples(from: outBuffer)
             let capturedAt = Date()
             Task {
-                await self.dispatchMic(samples: converted, capturedAt: capturedAt)
+                await self.dispatchMic(samples: converted, capturedAt: capturedAt, generation: generation)
             }
         }
 
@@ -171,7 +180,9 @@ actor AudioCaptureManager {
         }
     }
 
-    private func dispatchMic(samples: [Float], capturedAt: Date) {
+    private func dispatchMic(samples: [Float], capturedAt: Date, generation: UInt64) {
+        // 停止後に遅延実行された旧セッションの Task を破棄する（新 stream への混入防止）。
+        guard generation == captureGeneration else { return }
         let chunk = AudioChunk(lane: .microphone, samples: samples, capturedAt: capturedAt)
         micContinuation?.yield(chunk)
         micLevelContinuation?.yield(AudioSampleConversion.rmsLevel(samples))
@@ -185,10 +196,11 @@ actor AudioCaptureManager {
     /// systemOnly 録音のファイル書き出しは TASK-12（デュアル録音・録音ファイル管理）に委ねるため、
     /// ここでは AudioFileWriter を開かない。
     private func startSystemCapture() throws {
+        let generation = captureGeneration
         do {
             try systemTap.start { [weak self] samples, capturedAt in
                 Task { [weak self] in
-                    await self?.dispatchSystem(samples: samples, capturedAt: capturedAt)
+                    await self?.dispatchSystem(samples: samples, capturedAt: capturedAt, generation: generation)
                 }
             }
         } catch let error as SystemAudioTapError {
@@ -196,7 +208,9 @@ actor AudioCaptureManager {
         }
     }
 
-    private func dispatchSystem(samples: [Float], capturedAt: Date) {
+    private func dispatchSystem(samples: [Float], capturedAt: Date, generation: UInt64) {
+        // 停止後に遅延実行された旧セッションの Task を破棄する（新 stream への混入防止）。
+        guard generation == captureGeneration else { return }
         let chunk = AudioChunk(lane: .system, samples: samples, capturedAt: capturedAt)
         systemContinuation?.yield(chunk)
         systemLevelContinuation?.yield(AudioSampleConversion.rmsLevel(samples))
