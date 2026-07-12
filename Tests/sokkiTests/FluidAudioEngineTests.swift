@@ -1,4 +1,5 @@
 import FluidAudio
+import Foundation
 import Testing
 @testable import SokkiKit
 
@@ -33,7 +34,7 @@ struct FluidAudioEngineTests {
         do {
             try await engine.prepare()
             Issue.record("prepare should throw")
-        } catch case DiarizationEngineError.modelLoadFailed {
+        } catch DiarizationEngineError.modelLoadFailed {
             let isReady = await engine.isReady
             #expect(isReady == false)
         } catch {
@@ -51,7 +52,7 @@ struct FluidAudioEngineTests {
         do {
             _ = try await engine.diarize(audioArray: [0])
             Issue.record("diarize should throw")
-        } catch case DiarizationEngineError.diarizationFailed {
+        } catch DiarizationEngineError.diarizationFailed {
             // Expected.
         } catch {
             Issue.record("unexpected error: \(error)")
@@ -103,7 +104,7 @@ struct FluidAudioEngineTests {
         do {
             _ = try await engine.diarize(audioArray: [0])
             Issue.record("diarize should throw")
-        } catch case DiarizationEngineError.invalidEmbedding(let expected, let actual) {
+        } catch DiarizationEngineError.invalidEmbedding(let expected, let actual) {
             #expect(expected == 256)
             #expect(actual == 2)
         } catch {
@@ -137,6 +138,6 @@ private actor MockFluidAudioManager: FluidAudioManaging {
 
     func process(audio: [Float]) throws -> [TimedSpeakerSegment] {
         if let processError { throw processError }
-        result
+        return result
     }
 }
