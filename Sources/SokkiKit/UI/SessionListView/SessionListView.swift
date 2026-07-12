@@ -12,6 +12,7 @@ struct SessionListView: View {
         List(sessions, selection: $selectedSession) { session in
             SessionRowView(session: session)
                 .tag(session)
+                .accessibilityIdentifier("sessionRow")
         }
         .listStyle(.sidebar)
         .navigationTitle("録音一覧")

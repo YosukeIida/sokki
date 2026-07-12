@@ -89,3 +89,30 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yosukeiida.sokkiTests
         CODE_SIGNING_REQUIRED: NO
+        GENERATE_INFOPLIST_FILE: YES
+
+  sokkiUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - Tests/sokkiUITests
+    dependencies:
+      - target: sokki
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yosukeiida.sokkiUITests
+        CODE_SIGNING_REQUIRED: NO
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: sokki
+
+schemes:
+  sokki:
+    build:
+      targets:
+        sokki: all
+        sokkiTests: [test]
+        sokkiUITests: [test]
+    test:
+      targets:
+        - sokkiTests
+        - sokkiUITests

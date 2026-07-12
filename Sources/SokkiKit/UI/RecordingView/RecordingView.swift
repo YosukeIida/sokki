@@ -161,6 +161,7 @@ struct RecordingView: View {
                     .foregroundStyle(pipeline.isRunning ? .red : .primary)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("recordStopButton")
 
             Spacer()
         }
@@ -180,9 +181,15 @@ struct RecordingView: View {
         .frame(width: 600, height: 500)
 }
 
-#Preview("ローディング中") {
+#Preview("ローディング中（ダウンロード進捗あり）") {
     RecordingView()
         .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.loading()))
+        .frame(width: 600, height: 500)
+}
+
+#Preview("ローディング中（メモリロード・進捗なし）") {
+    RecordingView()
+        .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.loadingIntoMemory()))
         .frame(width: 600, height: 500)
 }
 
