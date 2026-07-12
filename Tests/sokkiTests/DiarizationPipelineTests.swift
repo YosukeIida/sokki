@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import SwiftData
 import Testing
@@ -160,6 +161,39 @@ struct DiarizationPipelineTests {
 
         let profiles = try fetchProfiles(container)
         #expect(profiles.isEmpty)
+    }
+
+    @Test("stop() を 2 回呼んでも diarization は 1 回だけ実行され embeddingCount は二重加算されない")
+    func stopIsReentrantSafe() async throws {
+        let container = try makeContainer()
+        let embedding = makeNormalizedEmbedding(seed: 7.0)
+        let mock = MockDiarizationEngine(result: makeResult([("S1", 0, 5, embedding)]))
+        let (pipeline, sessionManager, _) = makePipeline(container: container, diarization: mock)
+
+        let sid = try await sessionManager.createSession(title: "reentry", mode: .micOnly)
+        try await sessionManager.appendSegment(MockSegment(text: "x", start: 0, end: 5), toSessionID: sid)
+
+        // stop() が実際に diarization を走らせるよう、読み込める録音ファイルを session の audioURL へ用意する。
+        let url = try #require(await sessionManager.audioURL(forSessionID: sid))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false
+        )!
+        let writer = try AudioFileWriter(url: url, processingFormat: format)
+        let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000)!
+        buf.frameLength = 16_000
+        writer.write(buf)
+        writer.close()
+
+        pipeline.primeForStopTesting(sessionID: sid)
+        try await pipeline.stop()   // 1 回目: diarization 実行
+        try await pipeline.stop()   // 2 回目: 再入ガードで no-op
+
+        let profiles = try fetchProfiles(container)
+        #expect(profiles.count == 1)
+        #expect(profiles.first?.embeddingCount == 1)   // 二重加算されない
+        let diarizeCalls = await mock.diarizeCallCount
+        #expect(diarizeCalls == 1)
     }
 
     @Test("diarizationEnabled=false のとき既定は有効・false で無効を返す")

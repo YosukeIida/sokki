@@ -134,6 +134,12 @@ final class TranscriptionPipeline {
     }
 
     func stop() async throws {
+        // 再入ガード: stop() が二度呼ばれても同一セッションへ diarization を二重実行しない
+        // （SpeakerProfileModel.embeddingCount の二重加算を防ぐ）。isRunning を即座に倒すことで、
+        // 後続のフラッシュ待ち中に再入した stop() も早期 return する。
+        guard isRunning else { return }
+        isRunning = false
+
         timerTask?.cancel()
 
         // 録音長は「開始〜停止操作まで」の実時間で確定（後続フラッシュ時間を含めない・P1-2）
@@ -159,8 +165,6 @@ final class TranscriptionPipeline {
         loadingMessage = ""
         captureTask = nil
 
-        isRunning = false
-
         // 録音長を保存（P1-2）。失敗してもセッション自体は保持する。
         if let sid = currentSessionID, let duration {
             try? await sessionManager.updateDuration(sessionID: sid, duration: duration)
@@ -172,6 +176,8 @@ final class TranscriptionPipeline {
             await runDiarizationIfEnabled(sessionID: sid)
         }
 
+        // 後処理完了。再入時に同一セッションを再処理しないよう状態をクリアする。
+        currentSessionID = nil
         recordingStartedAt = nil
     }
 
@@ -236,6 +242,14 @@ final class TranscriptionPipeline {
     }
 
 #if DEBUG
+    /// テスト専用: start() を経ずに stop() の後処理フロー（フラッシュ・保存・diarization）を
+    /// 駆動できるよう内部状態を注入する。
+    func primeForStopTesting(sessionID: PersistentIdentifier) {
+        isRunning = true
+        currentSessionID = sessionID
+        recordingStartedAt = Date()
+    }
+
     func setForPreview(
         isRunning: Bool = false,
         isLoading: Bool = false,
