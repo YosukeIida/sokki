@@ -12,8 +12,10 @@ enum LevelMeterMath {
     /// system 側の IO コールバック（Core Audio Taps）はデバイスのネイティブバッファ長で駆動され、
     /// mic 側より高頻度になりうる。値が来るたびに MainActor へホップして配列更新・再描画するのは
     /// 表示上不要な負荷になるため、最小更新間隔で間引く（codex レビュー対応・TASK-13）。
-    static func shouldUpdate(now: Date, lastUpdate: Date, minInterval: TimeInterval) -> Bool {
-        now.timeIntervalSince(lastUpdate) >= minInterval
+    /// ウォールクロック（`Date`）は後退しうる（NTP補正・手動時刻変更）ため、単調クロックの
+    /// 経過時間（`Duration`、`ContinuousClock` 由来）で判定する（codex 再レビュー対応）。
+    static func shouldUpdate(elapsed: Duration, minInterval: Duration) -> Bool {
+        elapsed >= minInterval
     }
 }
 
@@ -40,11 +42,13 @@ struct WaveformView: View {
         .task {
             // system レーンは mic より高頻度になりうるため、表示更新は最大 ~30fps に間引く
             // （音声認識・録音側の配送には一切影響しない。UI 消費側のみのスロットリング）。
-            var lastUpdate = Date.distantPast
-            let minUpdateInterval: TimeInterval = 1.0 / 30
+            // ContinuousClock は単調クロックのため、ウォールクロック調整の影響を受けない。
+            let clock = ContinuousClock()
+            var lastUpdate = clock.now
+            let minUpdateInterval: Duration = .milliseconds(33)
             for await level in levelStream {
-                let now = Date()
-                guard LevelMeterMath.shouldUpdate(now: now, lastUpdate: lastUpdate, minInterval: minUpdateInterval) else {
+                let now = clock.now
+                guard LevelMeterMath.shouldUpdate(elapsed: lastUpdate.duration(to: now), minInterval: minUpdateInterval) else {
                     continue
                 }
                 lastUpdate = now

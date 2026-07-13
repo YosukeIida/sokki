@@ -1,4 +1,3 @@
-import Foundation
 import Testing
 @testable import SokkiKit
 
@@ -39,20 +38,17 @@ struct LevelMeterMathTests {
     }
 
     // MARK: - shouldUpdate（表示更新のスロットリング判定・codex レビュー対応 TASK-13）
+    // Duration ベース（単調クロック相当）。ウォールクロックの後退に影響されないことを
+    // 型レベルで保証するための引数設計（codex 再レビュー対応）。
 
     @Test("最小間隔未満の経過では更新しない")
     func shouldUpdateRejectsWithinMinInterval() {
-        let last = Date(timeIntervalSinceReferenceDate: 0)
-        let now = last.addingTimeInterval(0.01)
-        #expect(LevelMeterMath.shouldUpdate(now: now, lastUpdate: last, minInterval: 1.0 / 30) == false)
+        #expect(LevelMeterMath.shouldUpdate(elapsed: .milliseconds(10), minInterval: .milliseconds(33)) == false)
     }
 
     @Test("最小間隔ちょうど、またはそれ以上の経過では更新する")
     func shouldUpdateAllowsAtOrAfterMinInterval() {
-        let last = Date(timeIntervalSinceReferenceDate: 0)
-        let exact = last.addingTimeInterval(1.0 / 30)
-        let later = last.addingTimeInterval(1.0)
-        #expect(LevelMeterMath.shouldUpdate(now: exact, lastUpdate: last, minInterval: 1.0 / 30) == true)
-        #expect(LevelMeterMath.shouldUpdate(now: later, lastUpdate: last, minInterval: 1.0 / 30) == true)
+        #expect(LevelMeterMath.shouldUpdate(elapsed: .milliseconds(33), minInterval: .milliseconds(33)) == true)
+        #expect(LevelMeterMath.shouldUpdate(elapsed: .seconds(1), minInterval: .milliseconds(33)) == true)
     }
 }
