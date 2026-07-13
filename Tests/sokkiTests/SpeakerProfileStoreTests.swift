@@ -79,7 +79,7 @@ struct SpeakerProfileStoreNamingTests {
         #expect(names == ["Speaker A", "Speaker B"])
     }
 
-    @Test("3人目以降も桁上げせず A〜Z の範囲でロールオーバーする（26人目で AA）")
+    @Test("26人目までは A〜Z、27人目で AA に桁上げする")
     func rolloverAtTwentySeventhSpeaker() async throws {
         let container = try makeContainer()
         let store = SpeakerProfileStore(
