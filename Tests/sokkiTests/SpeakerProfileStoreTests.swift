@@ -97,9 +97,12 @@ struct SpeakerProfileStoreTests {
         let container = try makeContainer(at: storeURL)
         let store = SpeakerProfileStore(modelContext: ModelContext(container))
 
-        let base = makeNormalizedEmbedding(seed: 2.0)
-        // わずかに違う方向（閾値 0.82 は超える近さ）の embedding で 2 回目を解決する
-        let nudged = l2Normalize(zip(base, makeNormalizedEmbedding(seed: 2.05)).map { $0 + $1 * 0.02 })
+        // cos(base, nudged) = 0.85 に固定する（閾値 0.82 は超えつつ、生の EMA 合成ベクトル
+        // （0.9*base + 0.1*nudged, 未正規化）のノルムが 1.0 から 0.0136 ずれるよう意図的に選ぶ。
+        // 単に近い方向のベクトル同士（cos ≈ 0.9999）だと、正規化を行わなくても合成ベクトルの
+        // ノルムがほぼ 1.0 になってしまい、`l2Normalize` の呼び出し漏れという退行を検出できない。
+        let base: [Float] = [1, 0]
+        let nudged: [Float] = [0.85, (1 - Float(0.85) * Float(0.85)).squareRoot()]
 
         _ = try await store.resolveProfiles(from: makeResult([("S1", 0, 5, base)]))
         _ = try await store.resolveProfiles(from: makeResult([("S1", 0, 5, nudged)]))
@@ -157,6 +160,9 @@ struct SpeakerProfileStoreTests {
         let expectedRaw = zip(base, newEmbedding).map { (1 - Float(0.1)) * $0 + Float(0.1) * $1 }
         let expected = l2Normalize(expectedRaw)
 
+        // `zip` は短い方の長さに揃えてしまうため、次元数が一致することを先に確認しないと、
+        // embedding が空/短縮される退行があっても成分比較が恒真（0 回ループ）になり検出できない。
+        #expect(profile.embedding.count == expected.count)
         for (a, b) in zip(profile.embedding, expected) {
             #expect(abs(a - b) < 1e-5)
         }
