@@ -75,21 +75,25 @@ actor SessionManager {
         return min(max(raw, 0.5), 0.95)
     }
 
-    /// セグメントとの時間の重なりが最大になる diarization 話者ラベルを返す。重なりが無ければ nil。
+    /// セグメントとの時間の重なり（話者ごとの合計）が最大になる diarization 話者ラベルを返す。
+    /// 重なりが無ければ nil。同一話者が複数区間に分かれていても合計で評価する
+    /// （単一区間の最大値だと、細切れに長く話した話者より一区間だけ長い別話者を誤選択する）。
+    /// 合計が同値の場合は speakerID の辞書順で決定的に選ぶ。
     private static func bestOverlapSpeaker(
         segmentStart: Double,
         segmentEnd: Double,
         diarizationSegments: [DiarizationSegment]
     ) -> String? {
-        var best: (speakerID: String, overlap: Double)?
+        var totals: [String: Double] = [:]
         for d in diarizationSegments {
             let overlap = min(segmentEnd, d.end) - max(segmentStart, d.start)
             guard overlap > 0 else { continue }
-            if best == nil || overlap > best!.overlap {
-                best = (d.speakerID, overlap)
-            }
+            totals[d.speakerID, default: 0] += overlap
         }
-        return best?.speakerID
+        return totals.max { a, b in
+            if a.value != b.value { return a.value < b.value }
+            return a.key > b.key   // 同値時は辞書順で小さい speakerID を優先
+        }?.key
     }
 
     func updateDuration(sessionID: PersistentIdentifier, duration: Double) throws {
@@ -133,6 +137,12 @@ actor SessionManager {
         guard let session = try modelContext.fetch(descriptor).first else { return }
         if let audioFileURL = session.audioFileURL {
             try? FileManager.default.removeItem(at: audioFileURL)
+            // Both モード（TASK-12）は system レーンを `_system` 派生ファイルに別保存するため、
+            // 主ファイルと合わせて削除する（孤児ファイルを残さない）。
+            if session.captureMode == AudioCaptureManager.CaptureMode.both.rawValue {
+                let systemURL = AudioCaptureManager.systemFileURL(forPrimary: audioFileURL)
+                try? FileManager.default.removeItem(at: systemURL)
+            }
         }
         modelContext.delete(session)
         try modelContext.save()

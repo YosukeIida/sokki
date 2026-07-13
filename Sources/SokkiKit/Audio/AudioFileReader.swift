@@ -20,10 +20,7 @@ enum AudioFileReader {
         let processingFormat = file.processingFormat
         let frameCount = AVAudioFrameCount(file.length)
         guard frameCount > 0 else { return [] }
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: processingFormat, frameCapacity: frameCount) else {
-            return []
-        }
-        try file.read(into: buffer)
+        let buffer = try readAllFrames(from: file, capacity: frameCount)
 
         if processingFormat.sampleRate == sampleRate && processingFormat.channelCount == 1 {
             return samples(from: buffer)
@@ -49,22 +46,78 @@ enum AudioFileReader {
         }
 
         // AVAudioConverterInputBlock は @Sendable のため、可変フラグは Sendable なボックスに包む。
-        // 入力（buffer）は一度だけ供給し、以降は noDataNow を返す。
+        // 入力（buffer）は一度だけ供給し、以降は endOfStream を返す。noDataNow だとサンプルレート
+        // 変換器が内部に保持する末尾サンプルが flush されず、変換結果の末尾が欠落する。
         let state = ConverterInputState()
-        var error: NSError?
-        converter.convert(to: outBuffer, error: &error) { _, status in
-            if state.provided {
-                status.pointee = .noDataNow
-                return nil
+        var collected: [Float] = []
+        while true {
+            outBuffer.frameLength = 0
+            var error: NSError?
+            let status = converter.convert(to: outBuffer, error: &error) { _, inputStatus in
+                if state.provided {
+                    inputStatus.pointee = .endOfStream
+                    return nil
+                }
+                state.provided = true
+                inputStatus.pointee = .haveData
+                return buffer
             }
-            state.provided = true
-            status.pointee = .haveData
-            return buffer
+            if let error {
+                throw AudioFileReaderError.conversionFailed(underlying: error)
+            }
+            collected.append(contentsOf: samples(from: outBuffer))
+            switch status {
+            case .haveData, .inputRanDry:
+                // haveData: 出力バッファ容量に収まりきらなかった場合は続けて排出する。
+                // inputRanDry: 入力ブロックは noDataNow を返さないため通常到達しないが、
+                // 到達しても endOfStream まで継続して末尾 flush を確実にする。
+                // いずれも進捗（出力）が無ければ打ち切る（無限ループ防止の保険）。
+                if outBuffer.frameLength == 0 { return collected }
+            case .endOfStream:
+                return collected
+            case .error:
+                // NSError が nil のまま .error が返った場合。途中までのサンプルを返すと
+                // 欠落した音声で diarize してしまうため throw する（上流は graceful degradation）。
+                throw AudioFileReaderError.conversionFailed(underlying: NSError(
+                    domain: "com.sokki.AudioFileReader",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "AVAudioConverter returned .error without NSError"]
+                ))
+            @unknown default:
+                return collected
+            }
         }
-        if let error {
-            throw AudioFileReaderError.conversionFailed(underlying: error)
+    }
+
+    /// ファイルの全フレームを 1 つのバッファへ読み切る。
+    /// `AVAudioFile.read(into:)` は 1 回の呼び出しで frameCapacity まで埋める保証が無く
+    /// （実測: 16,000 フレームの WAV が 15,360 + 640 の 2 回に分かれる）、
+    /// 1 回読みでは末尾が欠落するためループで読み進める。
+    private static func readAllFrames(
+        from file: AVAudioFile,
+        capacity: AVAudioFrameCount
+    ) throws -> AVAudioPCMBuffer {
+        let format = file.processingFormat
+        guard let full = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity),
+              let chunk = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 32_768) else {
+            throw AudioFileReaderError.conversionUnavailable
         }
-        return samples(from: outBuffer)
+        // EOF 到達後にさらに read すると nilError を throw するため、framePosition で読了を判定する。
+        while file.framePosition < file.length {
+            try file.read(into: chunk)
+            let n = Int(chunk.frameLength)
+            guard n > 0 else { break }   // 進捗なし（保険: 無限ループ防止）
+            let offset = Int(full.frameLength)
+            // file.length ベースの capacity を超えることは無いはずだが、保険として打ち切る。
+            guard offset + n <= Int(full.frameCapacity) else { break }
+            if let src = chunk.floatChannelData, let dst = full.floatChannelData {
+                for ch in 0..<Int(format.channelCount) {
+                    (dst[ch] + offset).update(from: src[ch], count: n)
+                }
+            }
+            full.frameLength = AVAudioFrameCount(offset + n)
+        }
+        return full
     }
 
     /// AVAudioConverterInputBlock（@Sendable）内で使う可変フラグの入れ物。

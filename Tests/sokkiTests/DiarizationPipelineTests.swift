@@ -28,7 +28,11 @@ struct DiarizationPipelineTests {
         container: ModelContainer,
         diarization: MockDiarizationEngine
     ) -> (pipeline: TranscriptionPipeline, sessionManager: SessionManager, store: SpeakerProfileStore) {
-        let store = SpeakerProfileStore(modelContext: ModelContext(container))
+        // 自動命名（TASK-38: ロケール追従 SpeakerLabel）を実行環境のロケールに依存させない。
+        let store = SpeakerProfileStore(
+            modelContext: ModelContext(container),
+            locale: Locale(identifier: "ja_JP")
+        )
         let sessionManager = SessionManager(modelContainer: container)
         let pipeline = TranscriptionPipeline(
             captureManager: AudioCaptureManager(),
@@ -85,7 +89,7 @@ struct DiarizationPipelineTests {
         #expect(segments.count == 1)
         #expect(segments.first?.speakerLabel == "S1")
         #expect(segments.first?.speakerProfile != nil)
-        #expect(segments.first?.speakerProfile?.displayName == "話者 1")
+        #expect(segments.first?.speakerProfile?.displayName == "話者A")
 
         let profiles = try fetchProfiles(container)
         #expect(profiles.count == 1)
@@ -352,7 +356,7 @@ struct DiarizationPipelineTests {
         // コサイン類似度（≈1.0）が返る。
         let scores = try await store.candidateMatchScores(for: embedding)
         #expect(scores.count == 1)
-        #expect(scores[0].displayName == "話者 1")
+        #expect(scores[0].displayName == "話者A")
         #expect(abs(scores[0].score - 1.0) < 1e-4)
 
         // 逆方向の embedding（コサイン類似度 = -1.0 になることが幾何学的に保証される）を

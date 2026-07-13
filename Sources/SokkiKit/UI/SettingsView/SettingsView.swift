@@ -43,9 +43,34 @@ public struct SettingsView: View {
         .padding()
     }
 
+    /// SpeechAnalyzer（macOS 26+ の Speech 新 API）が利用可能か。
+    private var isSpeechAnalyzerAvailable: Bool {
+        if #available(macOS 26.0, *) { return true }
+        return false
+    }
+
     private var transcriptionTab: some View {
         Form {
             Section("エンジン") {
+                Picker("文字起こしエンジン", selection: Binding(
+                    get: { settings.transcriptionEngine },
+                    set: { settings.transcriptionEngine = $0 }
+                )) {
+                    Text("WhisperKit").tag("whisperkit")
+                    Text("Apple SpeechAnalyzer").tag("speechAnalyzer")
+                }
+                .disabled(!isSpeechAnalyzerAvailable)
+                if !isSpeechAnalyzerAvailable {
+                    Text("Apple SpeechAnalyzer は macOS 26 以降で利用できます。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("エンジンの切り替えはアプリの再起動後に反映されます。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Section("Whisper モデル") {
                 Picker("Whisper モデル", selection: Binding(
                     get: { settings.whisperModelVariant },
                     set: { settings.whisperModelVariant = $0 }
@@ -57,6 +82,23 @@ public struct SettingsView: View {
                     Text("medium").tag("openai_whisper-medium")
                     Text("small").tag("openai_whisper-small")
                 }
+                Picker("文字起こし言語", selection: Binding(
+                    get: { settings.transcriptionLanguage },
+                    set: { settings.transcriptionLanguage = $0 }
+                )) {
+                    ForEach(TranscriptionLanguageOption.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option.rawValue)
+                    }
+                }
+            }
+            Section("会議自動検出") {
+                Toggle("会議を検出したら録音を提案する", isOn: Binding(
+                    get: { settings.meetingDetectionEnabled },
+                    set: { settings.meetingDetectionEnabled = $0 }
+                ))
+                Text("Zoom / Microsoft Teams / Google Meet のウィンドウを定期的に確認します。有効にすると画面収録の権限確認が表示される場合があります。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding()
