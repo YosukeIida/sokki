@@ -19,18 +19,26 @@ actor SpeakerProfileStore {
         matcher = EmbeddingMatcher(threshold: threshold)
     }
 
-    // diarization 結果を受け取り、speakerID → プロファイル のマッピングを返す
+    // diarization 結果を受け取り、speakerID → プロファイル識別子 のマッピングを返す。
+    // `SpeakerProfileModel`（@Model）は Sendable でなく actor 境界を越えられないため、
+    // 呼び出し側（別 actor の SessionManager など）が安全に扱えるよう PersistentIdentifier を返す（CLAUDE.md 規約）。
     func resolveProfiles(
         from diarization: DiarizationResult
-    ) throws -> [String: SpeakerProfileModel] {
-        var mapping: [String: SpeakerProfileModel] = [:]
+    ) throws -> [String: PersistentIdentifier] {
+        var profiles: [String: SpeakerProfileModel] = [:]
         let speakerEmbeddings = aggregatedEmbeddings(from: diarization)
 
         for (speakerID, embedding) in speakerEmbeddings {
             let profile = try findOrCreate(embedding: embedding)
-            mapping[speakerID] = profile
+            profiles[speakerID] = profile
         }
+        // save 後に永続 ID が確定するため、マッピングは save 後に構築する。
         try modelContext.save()
+
+        var mapping: [String: PersistentIdentifier] = [:]
+        for (speakerID, profile) in profiles {
+            mapping[speakerID] = profile.persistentModelID
+        }
         return mapping
     }
 

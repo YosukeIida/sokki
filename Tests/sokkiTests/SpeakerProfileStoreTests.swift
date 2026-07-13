@@ -5,14 +5,18 @@ import SwiftData
 
 // MARK: - Helpers
 
-/// テスト専用: `@Model` の `SpeakerProfileModel` を actor 境界を越えて直接返さず、
-/// Sendable な displayName の集合に変換して返す（Phase1AudioSaveTests.swift の
-/// allSessionSnapshots() と同じ方針）。
-extension SpeakerProfileStore {
-    fileprivate func autoNamedDisplayNames(from diarization: DiarizationResult) throws -> Set<String> {
-        let mapping = try resolveProfiles(from: diarization)
-        return Set(mapping.values.map(\.displayName))
-    }
+/// テスト専用: `resolveProfiles` は `@Model` を actor 境界越えで返さず PersistentIdentifier を
+/// 返す（CLAUDE.md 規約）ため、container の別 ModelContext で再取得して Sendable な
+/// displayName 集合へ変換する（Phase1AudioSaveTests.swift の allSessionSnapshots() と同じ方針）。
+private func autoNamedDisplayNames(
+    store: SpeakerProfileStore,
+    container: ModelContainer,
+    from diarization: DiarizationResult
+) async throws -> Set<String> {
+    let ids = Set(try await store.resolveProfiles(from: diarization).values)
+    let context = ModelContext(container)
+    let profiles = try context.fetch(FetchDescriptor<SpeakerProfileModel>())
+    return Set(profiles.filter { ids.contains($0.persistentModelID) }.map(\.displayName))
 }
 
 @Suite("SpeakerProfileStore 自動命名（TASK-38: ロケール追従 SpeakerLabel）")
@@ -57,7 +61,8 @@ struct SpeakerProfileStoreNamingTests {
             locale: Locale(identifier: "ja_JP")
         )
 
-        let names = try await store.autoNamedDisplayNames(
+        let names = try await autoNamedDisplayNames(
+            store: store, container: container,
             from: makeDiarizationResult(speakerCount: 2)
         )
 
@@ -72,7 +77,8 @@ struct SpeakerProfileStoreNamingTests {
             locale: Locale(identifier: "en_US")
         )
 
-        let names = try await store.autoNamedDisplayNames(
+        let names = try await autoNamedDisplayNames(
+            store: store, container: container,
             from: makeDiarizationResult(speakerCount: 2)
         )
 
@@ -87,7 +93,8 @@ struct SpeakerProfileStoreNamingTests {
             locale: Locale(identifier: "en_US")
         )
 
-        let names = try await store.autoNamedDisplayNames(
+        let names = try await autoNamedDisplayNames(
+            store: store, container: container,
             from: makeDiarizationResult(speakerCount: 27)
         )
 

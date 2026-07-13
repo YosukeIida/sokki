@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import os
 
 struct TranscriptSegmentViewModel: Identifiable {
     let id: UUID
@@ -50,6 +51,11 @@ final class TranscriptionPipeline {
     private var timerTask: Task<Void, Never>?
     private var currentSessionID: PersistentIdentifier?
     private var recordingStartedAt: Date?
+    /// stop() の停止後処理（フラッシュ・保存・diarization）実行中フラグ。
+    /// この間は start()/stop() の再入を拒否し、後処理対象のセッション状態が差し替わるのを防ぐ。
+    private var isFinalizing = false
+
+    private let logger = Logger(subsystem: "com.sokki.app", category: "diarization")
 
     /// 録音停止後の後処理（最終 flush → 保存）を直列に流すオーケストレータ（TASK-16 / P2-6）。
     /// AppDependencyContainer の組み立て時に `attach(coordinator:)` で注入する。未注入（Preview / 一部テスト）
@@ -80,7 +86,10 @@ final class TranscriptionPipeline {
         sessionTitle: String,
         transcriptionLanguage: String? = nil
     ) async throws {
-        guard !isRunning else { return }
+        // 前回録音の停止後処理（isFinalizing）中の開始は拒否する。許可すると stop() 側の
+        // await をまたいで currentSessionID / captureTask が差し替わり、旧セッションの
+        // duration 保存・diarization が新セッションへ誤適用され得る。
+        guard !isRunning, !isFinalizing else { return }
 
         await transcriptionEngine.setTranscriptionLanguage(transcriptionLanguage)
 
@@ -152,11 +161,10 @@ final class TranscriptionPipeline {
                 }
                 hypothesisText = update.hypothesis
 
-                // 確定セグメントのみを永続化する（既存フロー維持）。
-                if let sid = currentSessionID {
-                    for segment in update.newlyConfirmed {
-                        try await sessionManager.appendSegment(segment, toSessionID: sid)
-                    }
+                // 確定セグメントは録音開始時にキャプチャした sessionID で保存する（stop() の
+                // 後処理と並行してもフラッシュ分のセグメント保存が失われない）。
+                for segment in update.newlyConfirmed {
+                    try await sessionManager.appendSegment(segment, toSessionID: sessionID)
                 }
             }
         }
@@ -168,11 +176,16 @@ final class TranscriptionPipeline {
     }
 
     func stop() async throws {
-        // 再入ガード: 停止処理中の二重呼び出しは無視する（同一セッションの二重ジョブ enqueue と
-        // pendingDuration 上書きを防ぐ）。defer で全ての離脱経路で確実にフラグを戻す。
-        guard !isStopping else { return }
+        // 再入ガード: 停止処理中の二重呼び出しは無視する（同一セッションの二重ジョブ enqueue・
+        // diarization 二重実行・pendingDuration 上書きを防ぐ）。defer で全経路で確実に戻す。
+        guard isRunning, !isStopping else { return }
         isStopping = true
         defer { isStopping = false }
+        // 停止後処理（フラッシュ〜diarization）が完了するまで start() を拒否する（isFinalizing）。
+        // 許可すると await をまたいで currentSessionID / captureTask が差し替わり、旧セッションの
+        // duration 保存・diarization が新セッションへ誤適用され得る。
+        isFinalizing = true
+        defer { isFinalizing = false }
 
         timerTask?.cancel()
 
@@ -207,6 +220,12 @@ final class TranscriptionPipeline {
         }
         isLoading = false
         loadingMessage = ""
+
+        // Phase 3: 録音全体に対して diarization をバッチ実行し、話者プロファイルを解決・付与する。
+        // ここまでにセグメントは保存済みのため、diarization が失敗しても文字起こし結果は保持される。
+        // （.diarize ジョブへの移行は ProcessingCoordinator 統合タスクで行う — TASK-25/TASK-16 申し送り）
+        await runDiarizationIfEnabled(sessionID: sid)
+
         captureTask = nil
         isRunning = false
         recordingStartedAt = nil
@@ -250,6 +269,61 @@ final class TranscriptionPipeline {
         pendingDuration = nil
     }
 
+    // MARK: - Diarization（P3）
+
+    /// 設定が有効なら、保存済み音声ファイルを読み込み diarization → 話者プロファイル付与を行う。
+    /// 音声が読めない・設定が無効などの場合は何もしない（graceful degradation）。
+    private func runDiarizationIfEnabled(sessionID: PersistentIdentifier) async {
+        guard await sessionManager.diarizationEnabled() else { return }
+        guard let audioURL = await sessionManager.audioURL(forSessionID: sessionID),
+              FileManager.default.fileExists(atPath: audioURL.path) else {
+            logger.notice("話者分離をスキップ: 録音ファイルが見つかりません")
+            return
+        }
+        let samples: [Float]
+        do {
+            samples = try AudioFileReader.readMonoSamples(url: audioURL)
+        } catch {
+            logger.error("話者分離をスキップ: 音声の読み込みに失敗しました: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        guard !samples.isEmpty else { return }
+
+        // diarization（初回はモデル DL を伴い時間がかかる）中は UI に進捗を示す。
+        isLoading = true
+        loadingMessage = "話者を識別中…"
+        defer {
+            isLoading = false
+            loadingMessage = ""
+        }
+        await diarizeAndAssign(audioSamples: samples, sessionID: sessionID)
+    }
+
+    /// diarization → プロファイル解決 → セグメント付与を実行する（非スロー）。
+    /// 失敗はログに残すのみで、文字起こし結果の保存を妨げない（graceful degradation）。
+    /// テストから直接呼べるよう internal 可視性。
+    func diarizeAndAssign(audioSamples: [Float], sessionID: PersistentIdentifier) async {
+        do {
+            try await applyDiarization(audioSamples: audioSamples, sessionID: sessionID)
+        } catch {
+            logger.error("話者分離に失敗しました（非致命）: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// diarization の中核処理（スロー）。テストから直接呼べるよう internal 可視性。
+    func applyDiarization(audioSamples: [Float], sessionID: PersistentIdentifier) async throws {
+        if await !diarizationEngine.isReady {
+            try await diarizationEngine.prepare()
+        }
+        let result = try await diarizationEngine.diarize(audioArray: audioSamples)
+        let mapping = try await speakerStore.resolveProfiles(from: result)
+        try await sessionManager.assignSpeakersByOverlap(
+            sessionID: sessionID,
+            diarizationSegments: result.segments,
+            profileMapping: mapping
+        )
+    }
+
     /// 利用者がエラーバナーを閉じたときに呼ぶ。
     func dismissRecordingSaveError() {
         recordingSaveErrorMessage = nil
@@ -284,6 +358,14 @@ final class TranscriptionPipeline {
     }
 
 #if DEBUG
+    /// テスト専用: start() を経ずに stop() の後処理フロー（フラッシュ・保存・diarization）を
+    /// 駆動できるよう内部状態を注入する。
+    func primeForStopTesting(sessionID: PersistentIdentifier) {
+        isRunning = true
+        currentSessionID = sessionID
+        recordingStartedAt = Date()
+    }
+
     func setForPreview(
         isRunning: Bool = false,
         isLoading: Bool = false,
