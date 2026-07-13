@@ -139,7 +139,7 @@ actor WhisperKitEngine: TranscriptionEngine {
                         let finalBuffer = await accumulator.snapshot()
                         let decoded = finalBuffer.isEmpty
                             ? []
-                            : try await decodeSegments(finalBuffer, clipStart: tracker.lastConfirmedEnd)
+                            : try await decodeSegments(finalBuffer, clipStart: tracker.lastConfirmedEnd, isFinal: true)
                         continuation.yield(tracker.flush(decoded))
                     }
                     continuation.finish()
@@ -155,11 +155,18 @@ actor WhisperKitEngine: TranscriptionEngine {
     }
 
     /// 指定した秒位置 `clipStart` から末尾までを再デコードし、境界ロジック用の生セグメント列を返す。
-    private func decodeSegments(_ samples: [Float], clipStart: Float) async throws -> [DecodedSegment] {
+    ///
+    /// - Parameter isFinal: 停止時の最終 flush デコードなら `true`。WhisperKit の既定 `windowClipTime`（1.0 秒）は
+    ///   ハルシネーション抑止のためクリップ末尾 1 秒をデコードから除外するが、最終 flush ではそれをすると
+    ///   録音末尾の 1 秒未満の tail が二度とデコードされず取りこぼす。最終 flush のみ `windowClipTime = 0` にして末尾まで拾う。
+    private func decodeSegments(_ samples: [Float], clipStart: Float, isFinal: Bool = false) async throws -> [DecodedSegment] {
         guard let wk = whisperKit else { throw TranscriptionEngineError.notPrepared }
 
         var options = DecodingOptions()
         options.clipTimestamps = [clipStart]
+        if isFinal {
+            options.windowClipTime = 0
+        }
 
         let results = try await wk.transcribe(audioArray: samples, decodeOptions: options)
         return results.flatMap(\.segments).map { seg in

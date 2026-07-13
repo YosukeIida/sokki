@@ -127,6 +127,19 @@ struct ConfirmedBoundaryTrackerTests {
         #expect(tracker.lastConfirmedEnd == 4)
     }
 
+    @Test("flush 部分デコード: 最終結果が pending の一部しか返さなくても末尾を補完する")
+    func flushRecoversPendingTailOnPartialDecode() {
+        var tracker = ConfirmedBoundaryTracker(requiredSegments: 2)
+        // A 確定、B・C は hypothesis として保持
+        _ = tracker.ingest([seg("A", 0, 1), seg("B", 1, 2), seg("C", 2, 3)])
+
+        // 最終デコードが B'（1–2）しか返さない場合でも、pending の末尾 C（2–3）が失われない。
+        let flushed = tracker.flush([seg("B2", 1, 2)])
+        #expect(flushed.newlyConfirmed.map(\.text) == ["B2", "C"])
+        #expect(flushed.hypothesis == "")
+        #expect(tracker.lastConfirmedEnd == 3)
+    }
+
     @Test("二重確定の防止: 既確定境界より前の prefix セグメントは再確定しない")
     func doesNotReconfirmSegmentsBeforeBoundary() {
         var tracker = ConfirmedBoundaryTracker(requiredSegments: 1)

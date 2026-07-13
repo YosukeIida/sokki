@@ -72,9 +72,12 @@ struct ConfirmedBoundaryTracker {
     /// フォールバックとして確定する。これにより「停止直前まで画面に出ていた未確定テキスト」を取りこぼさない。
     mutating func flush(_ segments: [DecodedSegment]) -> TranscriptionStreamUpdate {
         let fresh = segments.filter { $0.end > lastConfirmedEnd }
-        let toConfirm = fresh.isEmpty
-            ? pendingHypothesis.filter { $0.end > lastConfirmedEnd }
-            : fresh
+        // 最終デコードが空・または pending の一部しか返さなかった場合でも、
+        // pending 末尾の未カバー分（fresh の到達終端より後ろ）を補完して取りこぼしを防ぐ。
+        // fresh が空なら pending 全体が補完対象になる（＝従来のフォールバック挙動を包含）。
+        let coveredEnd = fresh.last?.end ?? lastConfirmedEnd
+        let tailPending = pendingHypothesis.filter { $0.end > coveredEnd }
+        let toConfirm = fresh + tailPending
         if let last = toConfirm.last {
             lastConfirmedEnd = last.end
         }
