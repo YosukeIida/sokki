@@ -1,10 +1,10 @@
 ---
 id: TASK-41
 title: 文字起こし言語設定を追加
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-12 12:20'
-updated_date: '2026-07-12 12:21'
+updated_date: '2026-07-12 22:05'
 labels:
   - Phase1
 milestone: m-0
@@ -39,3 +39,13 @@ WhisperKitの DecodingOptions.language（および必要なら detectLanguage）
 - [ ] #3 project.yml 変更時は xcodegen generate を実行し entitlements の 3 権限（audio-input / screen-capture / network.client）が保持されていることを確認する
 - [ ] #4 対応する GitHub Issue がある場合は完了時に gh issue close でクローズして backlog と同期する
 <!-- DOD:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: claude
+created: 2026-07-12 22:05
+---
+実装完了・PR #72 マージ可能判定（sonnet 実装・Fable レビュー済み・マージはユーザー承認待ち）。重要な発見: WhisperKit は DecodingOptions(language: nil) だけでは自動検出にならず en 固定になる（detectLanguage 明示が必要）。実機検証（ユーザー）: 日本語固定→録音→日本語認識の確認。マージ後: Done 化 + Issue #63 クローズ。
+---
+<!-- COMMENTS:END -->

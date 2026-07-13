@@ -38,21 +38,33 @@ struct MockTranscriptionEngineTests {
         #expect(segments.first?.text == "テストテキスト")
     }
 
-    @Test("transcribeStream でスタブセグメントが流れる")
+    @Test("transcribeStream でスタブアップデートが流れる")
     func transcribeStreamYieldsStubs() async throws {
         let engine = MockTranscriptionEngine()
         try await engine.prepare()
+        await engine.setStubbedStreamUpdates([
+            TranscriptionStreamUpdate(newlyConfirmed: [], hypothesis: "とちゅう"),
+            TranscriptionStreamUpdate(
+                newlyConfirmed: [
+                    TranscriptionSegmentSnapshot(start: 0, end: 1, text: "かくてい")
+                ],
+                hypothesis: ""
+            ),
+        ])
 
         var micCont: AsyncStream<AudioChunk>.Continuation!
         let micStream = AsyncStream<AudioChunk> { micCont = $0 }
         micCont.finish()
 
         let stream = await engine.transcribeStream(audioChunks: micStream)
-        var results: [any TranscriptionSegment] = []
-        for try await seg in stream {
-            results.append(seg)
+        var results: [TranscriptionStreamUpdate] = []
+        for try await update in stream {
+            results.append(update)
         }
-        #expect(results.count == 1)
+        #expect(results.count == 2)
+        #expect(results.first?.hypothesis == "とちゅう")
+        #expect(results.last?.newlyConfirmed.first?.text == "かくてい")
+        #expect(results.last?.hypothesis == "")
     }
 
     @Test("MockSegment のプロパティが正しく設定される")
@@ -111,6 +123,10 @@ extension MockTranscriptionEngine {
 
     func setStubbedProgressPhases(_ phases: [TranscriptionEngineLoadPhase]) {
         stubbedProgressPhases = phases
+    }
+
+    func setStubbedStreamUpdates(_ updates: [TranscriptionStreamUpdate]) {
+        stubbedStreamUpdates = updates
     }
 }
 
