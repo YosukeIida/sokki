@@ -32,9 +32,12 @@ backlog board                 # ボード表示
 ### GitHub Issues との同期ルール
 
 - 各 backlog タスクの references に対応 Issue の URL を記録してある
-- **タスク完了時**: backlog を Done にし、対応 Issue を `gh issue close <n> --comment "実装完了: <概要>"` でクローズする
+- **タスク着手時**: backlog を In Progress にする
+- **PR 作成時**: 対応タスクに PR 番号・レビュー状況をコメント記録する（マージ前に Done にしない）
+- **タスク完了時（= PR マージ時）**: backlog を Done にし finalSummary を記入、対応 Issue を `gh issue close <n> --comment "実装完了: <概要>"` でクローズする
 - **タスク新規作成時**: backlog に作成し、ミラー Issue も `gh issue create` で作成して相互参照する（Issue 本文に backlog TASK-ID、backlog references に Issue URL）
 - 乖離を見つけたら backlog に合わせて Issues を直す
+- `gh pr create` / `gh pr merge` の実行時は PostToolUse hook（`.claude/hooks/backlog-sync-reminder.sh`）が同期リマインダーを自動で出す。リマインダーが出たら**その場で同期を実行する**こと
 
 ラベル: `Phase1` / `Phase2` / `Phase2.5` / `Phase3` / `Phase4` / `Phase5` / `Phase6` / `design` / `bug` / `test` / `infra`
 
