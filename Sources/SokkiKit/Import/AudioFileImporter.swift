@@ -125,7 +125,7 @@ final class AudioFileImporter {
                 destinationURL: destinationURL
             )
 
-            let samples = try AudioFileReader.readMonoSamples(url: destinationURL)
+            let samples = try await Self.decodeMonoSamples(url: destinationURL)
             guard !samples.isEmpty else { throw AudioFileImportError.emptyAudio }
 
             importingMessage = "文字起こし中…"
@@ -141,7 +141,12 @@ final class AudioFileImporter {
             try await sessionManager.updateDuration(sessionID: sessionID, duration: duration)
 
             importingMessage = "話者を識別中…"
-            await pipeline.diarizeAndAssign(audioSamples: samples, sessionID: sessionID)
+            // 話者分離は録音経路（TranscriptionPipeline.runDiarizationIfEnabled）と同じく設定でオン/オフされる。
+            // ここで確認せず無条件に呼ぶと、設定を無効にしていても声紋モデル推論・プロファイル保存が
+            // 実行されてしまい契約に反するため、必ずゲートする。
+            if await sessionManager.diarizationEnabled() {
+                await pipeline.diarizeAndAssign(audioSamples: samples, sessionID: sessionID)
+            }
         } catch {
             // 取り込みに失敗したら中途半端なセッションを残さない（AC #5: 失敗セッションは作らない）。
             try? await sessionManager.deleteSession(persistentID: sessionID)
@@ -155,7 +160,12 @@ final class AudioFileImporter {
     /// ソースファイルをアプリ管理領域へコピー、または（mp4 の場合）音声トラックを抽出する。
     /// sandbox 化に備え、ソース URL へは security-scoped アクセスを宣言してから読み取る
     /// （非 sandbox では `start` が false を返しても実害はない・ExportSaveService と同じ方針）。
-    private static func prepareAudioFile(
+    ///
+    /// `nonisolated` にして MainActor から切り離す: `FileManager.copyItem` は同期・ブロッキング呼び出しであり、
+    /// 大きな動画/音声ファイルのコピーで数百 ms〜数秒かかり得る。`@MainActor` のまま呼ぶと UI がフリーズする
+    /// ため、await 時にグローバルな並行実行コンテキストへホップさせる（nonisolated な async 関数は
+    /// 呼び出し元アクターに留まらない）。
+    private nonisolated static func prepareAudioFile(
         sourceURL: URL,
         sourceExtension: String,
         destinationURL: URL
@@ -174,10 +184,16 @@ final class AudioFileImporter {
         }
     }
 
+    /// 変換済みファイルを 16kHz mono Float 配列へデコードする（`AudioFileReader.readMonoSamples` はブロッキング）。
+    /// `prepareAudioFile` 同様 `nonisolated` にして MainActor をブロックしないようにする。
+    private nonisolated static func decodeMonoSamples(url: URL) async throws -> [Float] {
+        try AudioFileReader.readMonoSamples(url: url)
+    }
+
     /// AVAssetExportSession の audio-only プリセットで mp4 の音声トラックのみを .m4a として書き出す。
     /// `AVAudioFile` は動画コンテナを直接開けないため、既存のバッチ経路
     /// （`AudioFileReader` → `transcribe` → `diarizeAndAssign`）に載せられる形へ事前変換する。
-    private static func extractAudioTrack(from sourceURL: URL, to destinationURL: URL) async throws {
+    private nonisolated static func extractAudioTrack(from sourceURL: URL, to destinationURL: URL) async throws {
         let asset = AVURLAsset(url: sourceURL)
         guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
             throw AudioFileImportError.audioPreparationFailed(
