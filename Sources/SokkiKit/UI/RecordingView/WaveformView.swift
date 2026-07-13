@@ -7,6 +7,14 @@ enum LevelMeterMath {
         let normalized = (level + 60) / 60
         return CGFloat(max(0, min(1, normalized)))
     }
+
+    /// 表示更新のスロットリング判定（純粋関数）。
+    /// system 側の IO コールバック（Core Audio Taps）はデバイスのネイティブバッファ長で駆動され、
+    /// mic 側より高頻度になりうる。値が来るたびに MainActor へホップして配列更新・再描画するのは
+    /// 表示上不要な負荷になるため、最小更新間隔で間引く（codex レビュー対応・TASK-13）。
+    static func shouldUpdate(now: Date, lastUpdate: Date, minInterval: TimeInterval) -> Bool {
+        now.timeIntervalSince(lastUpdate) >= minInterval
+    }
 }
 
 // mic=青 / system=赤の実レベルを表示するリアルタイム波形・レベルメーター（TASK-13）
@@ -30,7 +38,16 @@ struct WaveformView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .task {
+            // system レーンは mic より高頻度になりうるため、表示更新は最大 ~30fps に間引く
+            // （音声認識・録音側の配送には一切影響しない。UI 消費側のみのスロットリング）。
+            var lastUpdate = Date.distantPast
+            let minUpdateInterval: TimeInterval = 1.0 / 30
             for await level in levelStream {
+                let now = Date()
+                guard LevelMeterMath.shouldUpdate(now: now, lastUpdate: lastUpdate, minInterval: minUpdateInterval) else {
+                    continue
+                }
+                lastUpdate = now
                 await MainActor.run {
                     levels.removeFirst()
                     levels.append(level)
