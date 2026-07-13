@@ -15,6 +15,11 @@ packages:
   swift-snapshot-testing:
     url: https://github.com/pointfreeco/swift-snapshot-testing
     from: 1.17.0
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    # pre-1.0 は minor でも破壊的変更がありうるため upToNextMinor 相当（minorVersion）で上限を絞る
+    # Package.swift の .upToNextMinor(from: "0.15.5") と同じ意図
+    minorVersion: 0.15.5
 
 settings:
   base:
@@ -39,6 +44,8 @@ targets:
         product: WhisperKit
       - package: argmax-oss-swift
         product: SpeakerKit
+      - package: FluidAudio
+        product: FluidAudio
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yosukeiida.sokkikit
@@ -58,6 +65,7 @@ targets:
       properties:
         NSMicrophoneUsageDescription: "録音した音声を文字起こしするためにマイクを使用します。"
         NSSpeechRecognitionUsageDescription: "録音した音声を文字起こしするために音声認識を使用します。"
+        NSAudioCaptureUsageDescription: "会議やメディアなどのシステム音声を文字起こしするために、この Mac で再生中の音声を取り込みます。"
     entitlements:
       path: sokki.entitlements
       properties:

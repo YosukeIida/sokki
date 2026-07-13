@@ -4,7 +4,7 @@ title: Homebrew Cask配布 + Gatekeeper回避ドキュメント
 status: To Do
 assignee: []
 created_date: '2026-07-11 16:37'
-updated_date: '2026-07-11 16:39'
+updated_date: '2026-07-12 21:33'
 labels:
   - Phase5
   - infra
@@ -27,3 +27,13 @@ brew install --cask sokkiで導入可能にする。署名方針（P2-0）と整
 - [ ] #1 brew install --cask sokkiで導入できること
 - [ ] #2 署名方針（P2-0）と整合していること
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: claude
+created: 2026-07-12 21:33
+---
+【2026-07-13 オーケストレーション判断】doc-1 の方針通り、本タスクは Developer ID Program 取得後まで保留とする。Phase2〜5 並列実装セッションのスコープから除外（TASK-42 の dmg 配布ドキュメントが先行する）。
+---
+<!-- COMMENTS:END -->

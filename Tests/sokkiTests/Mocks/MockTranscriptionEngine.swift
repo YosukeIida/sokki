@@ -24,9 +24,18 @@ actor MockTranscriptionEngine: TranscriptionEngine {
     var prepareCallCount = 0
     var transcribeCallCount = 0
     var stubbedSegments: [any TranscriptionSegment] = [MockSegment(text: "テストテキスト")]
+    /// `transcribeStream` が順に yield するアップデート列。既定は空。
+    var stubbedStreamUpdates: [TranscriptionStreamUpdate] = []
     var stubbedProgressPhases: [TranscriptionEngineLoadPhase] = []
     var shouldThrowOnPrepare = false
     var shouldThrowOnTranscribe = false
+    /// `transcribeStream` が実際に受け取ったチャンクのレーン列。Both モードで mic/system の
+    /// 両ストリームが購読されていることを検証するために記録する。
+    private(set) var receivedLanes: [AudioLane] = []
+
+    private func recordLane(_ lane: AudioLane) {
+        receivedLanes.append(lane)
+    }
 
     func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws {
         prepareCallCount += 1
@@ -49,11 +58,16 @@ actor MockTranscriptionEngine: TranscriptionEngine {
 
     func transcribeStream(
         audioChunks: AsyncStream<AudioChunk>
-    ) -> AsyncThrowingStream<any TranscriptionSegment, Error> {
-        AsyncThrowingStream { continuation in
+    ) -> AsyncThrowingStream<TranscriptionStreamUpdate, Error> {
+        let updates = stubbedStreamUpdates
+        return AsyncThrowingStream { continuation in
             Task {
-                for seg in stubbedSegments {
-                    continuation.yield(seg)
+                // 入力チャンクは受信レーンを記録しつつ消費する（内容には依存せずスタブ列を流す）。
+                for await chunk in audioChunks {
+                    await self.recordLane(chunk.lane)
+                }
+                for update in updates {
+                    continuation.yield(update)
                 }
                 continuation.finish()
             }
