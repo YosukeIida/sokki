@@ -1,4 +1,5 @@
 import Testing
+import UniformTypeIdentifiers
 @testable import SokkiKit
 
 @Suite("Exporter")
@@ -88,6 +89,35 @@ struct ExportTests {
 
         #expect(output.hasPrefix("WEBVTT"))
         #expect(!output.contains("-->"))
+    }
+
+    @Test("ExportFormat.contentType は fileExtension と同じ拡張子に解決される（全形式）")
+    func contentTypeMatchesFileExtension() {
+        for format in ExportFormat.allCases {
+            #expect(
+                format.contentType.preferredFilenameExtension == format.fileExtension,
+                "\(format.rawValue) の contentType が拡張子 \(format.fileExtension) に解決されない"
+            )
+        }
+    }
+
+    @Test("ExportService.export(session:format:) が保存UIの配線どおり形式別の出力を返す")
+    func exportServiceDispatchesToCorrectFormat() {
+        let service = ExportService()
+        let session = SessionModel(title: "Wiring", audioFilePath: "", captureMode: "mic")
+        let seg = SegmentModel(start: 1.25, end: 2.5, text: "配線テスト")
+        seg.session = session
+        session.segments = [seg]
+
+        let markdown = service.export(session: session, format: .markdown)
+        let srt = service.export(session: session, format: .srt)
+        let vtt = service.export(session: session, format: .vtt)
+        let plainText = service.export(session: session, format: .plainText)
+
+        #expect(markdown.contains("## Wiring"))
+        #expect(srt.contains("00:00:01,250"))
+        #expect(vtt.hasPrefix("WEBVTT") && vtt.contains("00:00:01.250"))
+        #expect(!plainText.contains("## Wiring") && plainText.contains("配線テスト"))
     }
 
     @Test("formatTimestamp の正確性")
