@@ -31,10 +31,14 @@ final class TranscriptionPipeline {
     private(set) var elapsedSeconds: Double = 0
     /// 録音ファイルの保存に問題が発生した場合の利用者向けメッセージ（P1）。
     private(set) var recordingSaveErrorMessage: String? = nil
+    /// 文字起こしの最終処理でエラーが起きた際の非致命的な通知メッセージ（P2）。
+    private(set) var transcriptionNoticeMessage: String? = nil
 
-    // Phase 2 で実装（SCStream 連携後に有効化）
-    // var micLevelStream:    AsyncStream<Float> { ... }
-    // var systemLevelStream: AsyncStream<Float> { ... }
+    /// マイク／システムの実レベル（dBFS RMS、-60...0）。WaveformView / LevelMeterView へ供給する（TASK-13）。
+    /// `captureManager` は `start` のたびにストリームを作り直す（AsyncStream は使い捨て）ため、
+    /// `start()` 完了時に最新のストリームへ差し替える。
+    private(set) var micLevelStream: AsyncStream<Float> = AsyncStream { $0.finish() }
+    private(set) var systemLevelStream: AsyncStream<Float> = AsyncStream { $0.finish() }
 
     private let captureManager: AudioCaptureManager
     private let transcriptionEngine: any TranscriptionEngine
@@ -46,6 +50,16 @@ final class TranscriptionPipeline {
     private var timerTask: Task<Void, Never>?
     private var currentSessionID: PersistentIdentifier?
     private var recordingStartedAt: Date?
+
+    /// 録音停止後の後処理（最終 flush → 保存）を直列に流すオーケストレータ（TASK-16 / P2-6）。
+    /// AppDependencyContainer の組み立て時に `attach(coordinator:)` で注入する。未注入（Preview / 一部テスト）
+    /// の場合は後処理をインラインで実行してフォールバックする。
+    private(set) var coordinator: ProcessingCoordinator?
+    /// 停止操作時に確定した録音長。後処理ジョブ（finalizeTranscription）が保存に使う。
+    private var pendingDuration: TimeInterval?
+    /// stop() の再入ガード。停止処理は複数の await を跨ぐため、二重呼び出しで同一セッションの
+    /// ジョブが二重 enqueue され、共有状態（pendingDuration）が上書きされるのを防ぐ。
+    private var isStopping = false
 
     init(
         captureManager: AudioCaptureManager,
@@ -61,8 +75,14 @@ final class TranscriptionPipeline {
         self.sessionManager = sessionManager
     }
 
-    func start(mode: AudioCaptureManager.CaptureMode, sessionTitle: String) async throws {
+    func start(
+        mode: AudioCaptureManager.CaptureMode,
+        sessionTitle: String,
+        transcriptionLanguage: String? = nil
+    ) async throws {
         guard !isRunning else { return }
+
+        await transcriptionEngine.setTranscriptionLanguage(transcriptionLanguage)
 
         if await !transcriptionEngine.isReady {
             isLoading = true
@@ -97,6 +117,10 @@ final class TranscriptionPipeline {
         try await captureManager.startCapture(mode: mode, outputURL: audioURL)
         recordingSaveErrorMessage = await captureManager.recordingSaveError.map(makeSaveErrorMessage)
 
+        // このセッション用に作り直された最新のレベルストリームへ差し替える（TASK-13）。
+        micLevelStream = await captureManager.micLevelStream
+        systemLevelStream = await captureManager.systemLevelStream
+
         isRunning = true
         elapsedSeconds = 0
         confirmedSegments = []
@@ -109,32 +133,51 @@ final class TranscriptionPipeline {
             switch mode {
             case .micOnly:    source = await captureManager.micStream
             case .systemOnly: source = await captureManager.systemStream
-            case .both:       source = await captureManager.micStream  // TODO: Phase 2 でストリームマージ
+            case .both:
+                // Both モード（TASK-12）: mic / system の 2 ストリームを到着順にインターリーブして
+                // 1 本化し、単一の文字起こしストリームへ供給する（MVP）。レーン分離の高度化は
+                // Phase 3 のマージ（TASK-26）に委ねる。
+                let mic = await captureManager.micStream
+                let system = await captureManager.systemStream
+                source = mergeAudioStreams(mic, system)
             }
 
             let transcriptStream = await transcriptionEngine.transcribeStream(audioChunks: source)
 
-            for try await segment in transcriptStream {
-                await MainActor.run {
-                    if segment.isConfirmed {
-                        confirmedSegments.append(TranscriptSegmentViewModel(segment))
-                        hypothesisText = ""
-                    } else {
-                        hypothesisText = segment.text
-                    }
+            // captureTask は @MainActor コンテキストで生成されるため MainActor 隔離を継承する。
+            // よって confirmedSegments / hypothesisText への代入はそのまま MainActor 上で行える。
+            for try await update in transcriptStream {
+                for segment in update.newlyConfirmed {
+                    confirmedSegments.append(TranscriptSegmentViewModel(segment))
                 }
-                if segment.isConfirmed, let sid = currentSessionID {
-                    try await sessionManager.appendSegment(segment, toSessionID: sid)
+                hypothesisText = update.hypothesis
+
+                // 確定セグメントのみを永続化する（既存フロー維持）。
+                if let sid = currentSessionID {
+                    for segment in update.newlyConfirmed {
+                        try await sessionManager.appendSegment(segment, toSessionID: sid)
+                    }
                 }
             }
         }
     }
 
+    /// 後処理オーケストレータを注入する（AppDependencyContainer 組み立て時に 1 回だけ呼ぶ）。
+    func attach(coordinator: ProcessingCoordinator) {
+        self.coordinator = coordinator
+    }
+
     func stop() async throws {
+        // 再入ガード: 停止処理中の二重呼び出しは無視する（同一セッションの二重ジョブ enqueue と
+        // pendingDuration 上書きを防ぐ）。defer で全ての離脱経路で確実にフラグを戻す。
+        guard !isStopping else { return }
+        isStopping = true
+        defer { isStopping = false }
+
         timerTask?.cancel()
 
         // 録音長は「開始〜停止操作まで」の実時間で確定（後続フラッシュ時間を含めない・P1-2）
-        let duration = recordingStartedAt.map { Date().timeIntervalSince($0) }
+        pendingDuration = recordingStartedAt.map { Date().timeIntervalSince($0) }
 
         // 1. ストリームを閉じる（transcribeStream のフラッシュがトリガーされる）
         await captureManager.stopCapture()
@@ -142,33 +185,102 @@ final class TranscriptionPipeline {
             recordingSaveErrorMessage = makeSaveErrorMessage(error)
         }
 
-        // 2. フラッシュ（バッファ内の残音声を文字起こし）が終わるまで待つ
+        // 2. 以降の後処理（flush 待ち → フォールバック永続化 → 録音長保存）を ProcessingCoordinator の
+        //    ジョブとして直列に流す。将来はこの前段に diarization ジョブが挿入される（TASK-25 統合時）。
+        guard let sid = currentSessionID else {
+            captureTask = nil
+            isRunning = false
+            recordingStartedAt = nil
+            return
+        }
+
         isLoading = true
-        loadingMessage = "文字起こし処理中…"
-        do {
-            try await captureTask?.value
-        } catch is CancellationError {
-            // ユーザーが強制中断した場合は無視
-        } catch {
-            // 文字起こしエラーは無視してセッションを保存
+        loadingMessage = ProcessingJobKind.finalizeTranscription.displayName
+        let job = ProcessingJob(sessionID: sid, kind: .finalizeTranscription)
+        if let coordinator {
+            // process(_:) は「このジョブの完了」まで待つ。runner が内部でエラー/キャンセルを保存に
+            // 変換するため、ここで throw されても停止処理は完了扱いとする。
+            try? await coordinator.process(job)
+        } else {
+            // Coordinator 未注入時（Preview 等）はインラインで後処理を実行し、従来挙動を維持する。
+            await runProcessingJob(job)
         }
         isLoading = false
         loadingMessage = ""
         captureTask = nil
-
         isRunning = false
+        recordingStartedAt = nil
+    }
+
+    /// ProcessingCoordinator から呼ばれる後処理ジョブのディスパッチ。ジョブ種別ごとに処理を振り分ける。
+    /// 自身でエラー/キャンセルを保存に変換し、原則 throw しない（1 件の失敗が後続を止めないため）。
+    func runProcessingJob(_ job: ProcessingJob) async {
+        switch job.kind {
+        case .finalizeTranscription:
+            await finalizeTranscription(sessionID: job.sessionID)
+        case .diarize:
+            // 将来のフック（TASK-25 統合時にここでバッチ話者分離を呼ぶ）。本ブランチでは未実装。
+            break
+        }
+    }
+
+    /// 録音停止後の文字起こし仕上げ。フラッシュ完了を待ち、失敗・キャンセル時は画面上の未確定テキストを
+    /// フォールバック保存する。最後に録音長を確定する。
+    private func finalizeTranscription(sessionID: PersistentIdentifier) async {
+        do {
+            // フラッシュ（バッファ内の残音声を文字起こし）が終わるまで待つ。
+            try await captureTask?.value
+        } catch is CancellationError {
+            // ジョブ/アプリ終了によるキャンセル時も、画面に残る未確定テキストを保存して
+            // 部分結果を残す（TASK-16 AC3）。確定セグメントはストリーミング中に永続化済み。
+            await persistPendingHypothesisFallback()
+        } catch {
+            // 文字起こしの最終 flush が失敗しても、画面に出ている未確定テキストを
+            // フォールバックとして確定・保存し、未確定分の消失を防ぐ（MAJOR-2b）。
+            // エラー自体はログ + 非致命的な UI 通知にとどめ、セッションは保存する。
+            await persistPendingHypothesisFallback()
+            transcriptionNoticeMessage = "文字起こしの最終処理でエラーが発生しました。認識済みのテキストは保存されています。"
+            NSLog("TranscriptionPipeline: final transcription flush failed: \(error.localizedDescription)")
+        }
 
         // 録音長を保存（P1-2）。失敗してもセッション自体は保持する。
-        if let sid = currentSessionID, let duration {
-            try? await sessionManager.updateDuration(sessionID: sid, duration: duration)
+        if let duration = pendingDuration {
+            try? await sessionManager.updateDuration(sessionID: sessionID, duration: duration)
         }
-        recordingStartedAt = nil
-        // Phase 3 で: diarization をバッチ実行
+        pendingDuration = nil
     }
 
     /// 利用者がエラーバナーを閉じたときに呼ぶ。
     func dismissRecordingSaveError() {
         recordingSaveErrorMessage = nil
+    }
+
+    /// 利用者が文字起こし通知バナーを閉じたときに呼ぶ。
+    func dismissTranscriptionNotice() {
+        transcriptionNoticeMessage = nil
+    }
+
+    /// 最終 flush が失敗した場合のフォールバック。画面に残っている未確定テキスト（hypothesis）を
+    /// 確定セグメントとして保存し、UI にも反映する。タイムスタンプは最善努力（直近の確定終端〜経過秒）。
+    private func persistPendingHypothesisFallback() async {
+        let text = hypothesisText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        let start = confirmedSegments.last?.end ?? 0
+        let end = max(start, elapsedSeconds)
+        let segment = TranscriptionSegmentSnapshot(
+            start: start,
+            end: end,
+            text: text,
+            isConfirmed: true,
+            avgLogProb: 0
+        )
+        confirmedSegments.append(TranscriptSegmentViewModel(segment))
+        hypothesisText = ""
+
+        if let sid = currentSessionID {
+            try? await sessionManager.appendSegment(segment, toSessionID: sid)
+        }
     }
 
 #if DEBUG
