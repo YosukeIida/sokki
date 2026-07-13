@@ -25,3 +25,29 @@ actor MockShareableContentProvider: ShareableContentProviding {
         return stubbedWindows
     }
 }
+
+/// `currentWindows()` の返却を手動で `release()` するまで保留できるモック。
+/// `MeetingDetector.stop()` が呼ばれている最中に in-flight の poll が完了するケース
+/// （stop() 後に stale な検出結果で状態を上書きしてしまわないか）を再現するために使う。
+actor GatedShareableContentProvider: ShareableContentProviding {
+    private var stubbedWindows: [MeetingWindowInfo] = []
+    private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func setStubbedWindows(_ windows: [MeetingWindowInfo]) {
+        stubbedWindows = windows
+    }
+
+    /// 保留中の呼び出し（あれば）を1件解放する。
+    func release() {
+        guard !pendingContinuations.isEmpty else { return }
+        let continuation = pendingContinuations.removeFirst()
+        continuation.resume()
+    }
+
+    func currentWindows() async throws -> [MeetingWindowInfo] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            pendingContinuations.append(continuation)
+        }
+        return stubbedWindows
+    }
+}

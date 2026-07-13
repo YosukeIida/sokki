@@ -62,6 +62,21 @@ enum MeetingApp: String, CaseIterable, Sendable {
         }
     }
 
+    /// このアプリのウィンドウ全体に適用する除外語（大小文字無視）。
+    /// `MeetingPattern.excludePatterns` は個別パターンにのみ適用されるため、
+    /// `commonMeetingPatterns`（汎用語）経由でのマッチはすり抜けてしまう
+    /// （例: 「Daily Chat | Microsoft Teams」は "| Microsoft Teams" パターンの
+    /// excludePatterns で弾かれても、続けて評価される汎用語 "daily" に低確信度で
+    /// マッチしてしまう）。そのためアプリ単位で一度だけ除外判定する。
+    var commonExcludePatterns: [String] {
+        switch self {
+        case .teams:
+            return ["chat", "activity"]
+        case .zoom, .googleMeet:
+            return []
+        }
+    }
+
     /// `commonMeetingPatterns`（meeting/call/sync 等の汎用語）を適用するか。
     ///
     /// Google Meet はブラウザの bundle ID（Chrome/Safari/Firefox/Edge）で絞り込むため、

@@ -31,11 +31,15 @@ struct MeetingPattern: Sendable {
     }
 
     /// 指定タイトルに一致するか（excludePatterns に一致した場合は false）。
+    ///
+    /// keyword の一致は単語境界（前後が英数字でないこと）を要求する。単純な部分一致だと
+    /// 例えば汎用キーワード "call" が "Recall" に、"sync" が "Async" に意図せずマッチしてしまう
+    /// （`String.contains` のみを使うという設計判断は維持しつつ、境界チェックのみ追加する）。
     func matches(title: String) -> Bool {
         let normalizedTitle = caseSensitive ? title : title.lowercased()
         let normalizedKeyword = caseSensitive ? keyword : keyword.lowercased()
 
-        guard normalizedTitle.contains(normalizedKeyword) else { return false }
+        guard Self.containsWholeWord(normalizedTitle, keyword: normalizedKeyword) else { return false }
 
         // excludePatterns は keyword の caseSensitive 設定に関係なく常に大小文字を無視して判定する
         // （タイトルの表記ゆれ「Chat」「chat」等に頑健にするため）。
@@ -44,6 +48,34 @@ struct MeetingPattern: Sendable {
             return false
         }
         return true
+    }
+
+    /// `haystack` 内に `keyword` が単語境界つきで出現するか（正規表現は使わない）。
+    /// 一致直前・直後の文字が英数字でなければ境界とみなす（文字列の先頭・末尾も境界）。
+    /// 最初の出現が境界条件を満たさなくても、以降の出現を走査して境界を満たすものを探す
+    /// （例: "call this a recall or a call" は "recall" 部分ではなく後方の独立した "call" で一致する）。
+    private static func containsWholeWord(_ haystack: String, keyword: String) -> Bool {
+        guard !keyword.isEmpty else { return false }
+        var searchRange = haystack.startIndex..<haystack.endIndex
+        while let found = haystack.range(of: keyword, range: searchRange) {
+            let beforeOK: Bool
+            if found.lowerBound == haystack.startIndex {
+                beforeOK = true
+            } else {
+                let before = haystack[haystack.index(before: found.lowerBound)]
+                beforeOK = !(before.isLetter || before.isNumber)
+            }
+            let afterOK: Bool
+            if found.upperBound == haystack.endIndex {
+                afterOK = true
+            } else {
+                let after = haystack[found.upperBound]
+                afterOK = !(after.isLetter || after.isNumber)
+            }
+            if beforeOK && afterOK { return true }
+            searchRange = found.upperBound..<haystack.endIndex
+        }
+        return false
     }
 }
 

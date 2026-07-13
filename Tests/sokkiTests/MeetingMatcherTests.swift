@@ -58,6 +58,37 @@ struct MeetingMatcherTests {
         #expect(result?.confidence == .high)
     }
 
+    @Test("Teams: 「Daily Chat | Microsoft Teams」は汎用語(daily)経由でもマッチしない（chat除外のすり抜け防止）")
+    func teamsChatExcludedEvenViaCommonKeywordFallback() {
+        // "| Microsoft Teams" パターンは excludePatterns(chat) で弾かれるが、
+        // その後に評価される commonMeetingPatterns の "daily" が低確信度ですり抜けてしまわないことを確認する。
+        let window = MeetingWindowInfo(bundleIdentifier: "com.microsoft.teams2", title: "Daily Chat | Microsoft Teams")
+        let result = MeetingMatcher.match(app: .teams, window: window)
+        #expect(result == nil)
+    }
+
+    @Test("Zoom: 汎用語「call」は「Recall」のような単語の一部にはマッチしない（単語境界）")
+    func zoomCommonKeywordDoesNotMatchSubstringOfUnrelatedWord() {
+        // "| Microsoft Teams" のような別パターンとの混同を避けるため Zoom で検証する。
+        let window = MeetingWindowInfo(bundleIdentifier: "us.zoom.xos", title: "Recall Notes")
+        let result = MeetingMatcher.match(app: .zoom, window: window)
+        #expect(result == nil)
+    }
+
+    @Test("Zoom: 汎用語「sync」は「Async」のような単語の一部にはマッチしない（単語境界）")
+    func zoomCommonKeywordDoesNotMatchAsyncSubstring() {
+        let window = MeetingWindowInfo(bundleIdentifier: "us.zoom.xos", title: "Async Standup Notes")
+        let result = MeetingMatcher.match(app: .zoom, window: window)
+        #expect(result == nil)
+    }
+
+    @Test("Zoom: 汎用語「call」は単語境界を満たす独立した出現には引き続きマッチする")
+    func zoomCommonKeywordStillMatchesWholeWordOccurrence() {
+        let window = MeetingWindowInfo(bundleIdentifier: "us.zoom.xos", title: "Recall or just call - notes")
+        let result = MeetingMatcher.match(app: .zoom, window: window)
+        #expect(result?.confidence == .low)
+    }
+
     // MARK: - Google Meet
 
     @Test("Google Meet: Chromeのタブタイトルに「meet.google.com」があれば高確信度でマッチする")

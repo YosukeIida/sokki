@@ -59,9 +59,16 @@ final class MeetingDetector {
     private func poll() async {
         do {
             let windows = try await provider.currentWindows()
+            // `provider.currentWindows()` はアクター境界を跨ぐ（実装は SCShareableContent
+            // への非同期呼び出し）ため、await 中に `stop()` が呼ばれて `pollingTask` が
+            // キャンセルされている可能性がある。ScreenCaptureKit 側の呼び出しは協調的
+            // キャンセルに反応するとは限らないため、resume 後に自分で確認しないと
+            // stop() 済みの状態を stale な検出結果で上書きしてしまう。
+            guard !Task.isCancelled else { return }
             let candidate = MeetingMatcher.bestCandidate(in: windows)
             suggestion = stateMachine.evaluate(detected: candidate)
         } catch {
+            guard !Task.isCancelled else { return }
             // 画面収録権限が無い場合など。クラッシュさせずバナーを消すだけに留める。
             suggestion = nil
         }

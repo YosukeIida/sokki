@@ -34,6 +34,13 @@ enum MeetingMatcher {
         }
         guard let title = window.title, !title.isEmpty else { return nil }
 
+        // アプリ単位の除外語は commonMeetingPatterns 経由のすり抜けを防ぐため、
+        // 個別パターンの判定より先に一度だけチェックする。
+        let lowercasedTitle = title.lowercased()
+        guard !app.commonExcludePatterns.contains(where: { lowercasedTitle.contains($0.lowercased()) }) else {
+            return nil
+        }
+
         // allPatterns は確信度降順に並んでいるため、最初に一致したものが最高確信度。
         for pattern in app.allPatterns where pattern.matches(title: title) {
             return MeetingCandidate(app: app, title: title, confidence: pattern.confidence)
