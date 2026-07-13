@@ -10,6 +10,18 @@ import os
 ///
 /// UI には出さない（過剰なため）。`TranscriptionPipeline` から DEBUG ビルド限定で
 /// Logger（category "diagnostics"）へ INFO 出力するフックとしてのみ使う。
+///
+/// ⚠️ 測定範囲の限界（レビュー指摘・TASK-27）:
+/// 本レポートは **単一の diarization 実行（= 1回の録音）内**の生セグメント embedding 同士の
+/// 類似度のみを見る。一方、実際に閾値 0.82 が適用されるのは
+/// `SpeakerProfileStore.resolveProfiles` が算出する「1セッション分の平均・正規化ベクトル」と
+/// 「過去セッションの EMA 更新済みプロファイル embedding」との比較であり、両者は別物である。
+/// そのため、本レポートの「話者内類似度」が高い（例: min > 0.82）ことは、
+/// **同一セッション内での diarization クラスタリングの安定性**を示すのみで、
+/// 「別録音（別日・別マイク環境等）でも同一人物として正しく再認識されるか」という
+/// TASK-27 の本題（録音間の再現性）を直接検証するものではない。
+/// 録音間の再現性を検証するには、同一話者が登場する複数回の録音を行い、
+/// それぞれのログの話者内平均を目視で比較する（本ハーネスは自動相関までは行わない）。
 struct EmbeddingSimilarityReport {
 
     struct IntraSpeakerStat: Equatable {
@@ -102,6 +114,8 @@ struct EmbeddingSimilarityReport {
     func formatted() -> String {
         var lines: [String] = []
         lines.append("=== 声紋照合 類似度レポート（閾値検証用 / TASK-27）===")
+        lines.append("※本レポートは今回の録音1回分のみの集計です。プロファイル照合は録音間の")
+        lines.append("  平均ベクトル同士の比較のため、録音間の再現性は複数回録音し目視で比較してください。")
 
         lines.append("[話者内類似度]")
         if intraSpeakerStats.isEmpty {

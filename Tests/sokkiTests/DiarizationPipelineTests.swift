@@ -227,6 +227,34 @@ struct DiarizationPipelineTests {
         #expect(abs(threshold - 0.82) < 1e-6)
     }
 
+    @Test(
+        "破損・範囲外の embeddingMatchThreshold は既定値へフォールバックまたは範囲へクランプされる（レビュー指摘の回帰テスト）",
+        arguments: [
+            // NOTE: SwiftData/SQLite の永続化を経ると Float.nan は 0.0 に丸められる（実測確認済み）。
+            // そのため NaN は「0.0 として読み出され 0.5 にクランプされる」経路になる。
+            // ±infinity は永続化後も非有限のまま読み出されるため isFinite ガードで既定値 0.82 に落ちる。
+            (Float.nan, Float(0.5)),
+            (Float.infinity, Float(0.82)),
+            (-Float.infinity, Float(0.82)),
+            (Float(-1.0), Float(0.5)),
+            (Float(0.0), Float(0.5)),
+            (Float(1.0), Float(0.95)),
+        ]
+    )
+    func embeddingMatchThresholdHandlesCorruptedValues(stored: Float, expected: Float) async throws {
+        let container = try makeContainer()
+        let sessionManager = SessionManager(modelContainer: container)
+
+        let ctx = ModelContext(container)
+        let settings = AppSettingsModel()
+        settings.embeddingMatchThreshold = stored
+        ctx.insert(settings)
+        try ctx.save()
+
+        let threshold = await sessionManager.embeddingMatchThreshold()
+        #expect(abs(threshold - expected) < 1e-6)
+    }
+
     @Test("設定に保存された embeddingMatchThreshold が読み取られる")
     func embeddingMatchThresholdReflectsSettings() async throws {
         let container = try makeContainer()
