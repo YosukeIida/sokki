@@ -90,7 +90,11 @@ struct AppleTranslationBridgeTests {
             fail: { _ in }
         ), generation: generation)
 
-        let loop = Task { await TranslationSessionBridge.runDrainLoop(bridge: bridge, session: session) }
+        let loop = Task {
+            await TranslationSessionBridge.runDrainLoop(
+                bridge: bridge, session: session, expectedGeneration: bridge.generationSnapshot
+            )
+        }
         await waitUntil { collected.value.count == 2 }
         bridge.endSession()
         await loop.value
@@ -121,7 +125,11 @@ struct AppleTranslationBridgeTests {
             fail: { _ in }
         ), generation: generation)
 
-        let loop = Task { await TranslationSessionBridge.runDrainLoop(bridge: bridge, session: session) }
+        let loop = Task {
+            await TranslationSessionBridge.runDrainLoop(
+                bridge: bridge, session: session, expectedGeneration: bridge.generationSnapshot
+            )
+        }
         await waitUntil { processed.value }   // ループが起動し次を待機中。
         bridge.endSession()
         await loop.value                       // ハングせず戻れば OK。
@@ -185,7 +193,11 @@ struct AppleTranslationBridgeTests {
             fail: { error in failCount.mutate { $0 += 1 }; lastError.mutate { $0 = error } }
         ), generation: generation)
 
-        let loop = Task { await TranslationSessionBridge.runDrainLoop(bridge: bridge, session: session) }
+        let loop = Task {
+            await TranslationSessionBridge.runDrainLoop(
+                bridge: bridge, session: session, expectedGeneration: bridge.generationSnapshot
+            )
+        }
         await session.waitUntilTranslating()   // translate が in-flight に入るまで待つ。
 
         bridge.endSession()                     // in-flight を CancellationError で完了。
@@ -209,7 +221,11 @@ struct AppleTranslationBridgeTests {
             receivedError.mutate { $0 = .some(error) }
         }), generation: generation)
 
-        let loop = Task { await TranslationSessionBridge.runDrainLoop(bridge: bridge, session: session) }
+        let loop = Task {
+            await TranslationSessionBridge.runDrainLoop(
+                bridge: bridge, session: session, expectedGeneration: bridge.generationSnapshot
+            )
+        }
         await waitUntil { if case .some = receivedError.value { return true } else { return false } }
         bridge.endSession()
         await loop.value
@@ -234,7 +250,11 @@ struct AppleTranslationBridgeTests {
             received.mutate { $0 = error }
         }), generation: generation)
 
-        let loop = Task { await TranslationSessionBridge.runDrainLoop(bridge: bridge, session: session) }
+        let loop = Task {
+            await TranslationSessionBridge.runDrainLoop(
+                bridge: bridge, session: session, expectedGeneration: bridge.generationSnapshot
+            )
+        }
         await waitUntil { received.value != nil }
         bridge.endSession()
         await loop.value
@@ -257,7 +277,11 @@ struct AppleTranslationBridgeTests {
             fail: { error in failed.mutate { $0 = error } }
         ), generation: generation)
 
-        let loop = Task { await TranslationSessionBridge.runDrainLoop(bridge: bridge, session: session) }
+        let loop = Task {
+            await TranslationSessionBridge.runDrainLoop(
+                bridge: bridge, session: session, expectedGeneration: bridge.generationSnapshot
+            )
+        }
         await waitUntil { failed.value != nil }
         bridge.endSession()
         await loop.value
@@ -268,6 +292,139 @@ struct AppleTranslationBridgeTests {
             Issue.record("providerError に正規化されていない: \(String(describing: failed.value))")
         }
         #expect(resumed.value == false)
+    }
+
+    // BLOCKER (codex 再レビュー): 起動が遅延した旧 closure が「たまたま」現行世代と一致して
+    // 古い session を新世代のジョブに使ってしまわないよう、`beginDrain` は closure 構築時点の
+    // 世代スナップショット（`expectedGeneration`）と実行時点の現在世代の一致を要求する。
+    // 不一致なら一度も drain せず、ready も立てず、session にも一切触れずに終了すること。
+    @Test("beginDrain は expectedGeneration が現在の世代と不一致なら即終了する（stale closure 対策）")
+    func staleClosureNeverDrains() async {
+        let bridge = TranslationSessionBridge()
+        let session = MockAppleSession()
+
+        // 「起動が遅延した旧 closure」を模す: 古い世代スナップショットを保持したまま、
+        // その後に setLanguages が呼ばれて世代が進んだ状況を作る。
+        _ = bridge.setLanguages(source: ja, target: en)
+        let staleGeneration = bridge.generationSnapshot
+        _ = bridge.setLanguages(source: en, target: ja)   // 世代 supersede。
+
+        await TranslationSessionBridge.runDrainLoop(
+            bridge: bridge, session: session, expectedGeneration: staleGeneration
+        )
+
+        // stale closure は session に一切触れない（beginDrain が nil を返して即終了するため）。
+        #expect(await session.translateBatches.isEmpty)
+        #expect(await session.prepareCallCount == 0)
+    }
+
+    // MAJOR (codex 再レビュー): 同一言語ペアを再設定しても `Configuration` が Equatable 上
+    // 変化しなければ `.translationTask` が再走しない（Apple ドキュメント上、同一 action の
+    // 再実行には `invalidate()` で version を進める必要がある）。setLanguages が同一ペアの
+    // 再設定を検知して invalidate() 経由で configuration を変化させることを確認する。
+    @Test("setLanguages は同一言語ペアの再設定でも configuration を変化させる（invalidate 経由）")
+    func setLanguagesInvalidatesOnSamePair() {
+        let bridge = TranslationSessionBridge()
+
+        _ = bridge.setLanguages(source: ja, target: en)
+        let first = bridge.configuration
+        _ = bridge.setLanguages(source: ja, target: en)   // 同一ペアの再設定。
+        let second = bridge.configuration
+
+        #expect(first != nil)
+        #expect(second != nil)
+        #expect(first != second)   // Equatable 上も変化していること（invalidate() の効果）。
+    }
+
+    // MAJOR (codex 再レビュー、前回 MAJOR-1: PARTIALLY): setLanguages による世代 supersede は
+    // （endSession を経由しなくても）旧世代の pending ジョブを一度だけ CancellationError で
+    // 完了させる必要がある。放置すると continuation リークになる。
+    @Test("setLanguages は旧世代の pending ジョブを一度だけ CancellationError で失敗完了させる")
+    func setLanguagesCancelsOldPendingJobs() {
+        let bridge = TranslationSessionBridge()
+        let failCount = LockedBox(0)
+        let resumeCount = LockedBox(0)
+        let lastError = LockedBox<Error?>(nil)
+
+        let oldGeneration = bridge.setLanguages(source: ja, target: en)
+        bridge.enqueue(.job(
+            requests: [AppleTranslationRequest(sourceText: "x", clientID: "id-x")],
+            resume: { _ in resumeCount.mutate { $0 += 1 } },
+            fail: { error in failCount.mutate { $0 += 1 }; lastError.mutate { $0 = error } }
+        ), generation: oldGeneration)
+
+        _ = bridge.setLanguages(source: en, target: ja)   // teardown なしで supersede。
+
+        #expect(failCount.value == 1)
+        #expect(resumeCount.value == 0)
+        #expect(lastError.value is CancellationError)
+    }
+
+    // BLOCKER (codex 再レビュー): View 消失等で drain ループの Task がキャンセルされた場合、
+    // 二度と `signalWake()` が来なくても `waitForWake()` に取り残されずループが終了すること。
+    @Test("drain ループの Task キャンセルは waitForWake に取り残されず終了する")
+    func drainLoopExitsOnTaskCancellation() async {
+        let bridge = TranslationSessionBridge()
+        let session = MockAppleSession()
+
+        _ = bridge.setLanguages(source: ja, target: en)
+        let expectedGeneration = bridge.generationSnapshot
+
+        let loop = Task {
+            await TranslationSessionBridge.runDrainLoop(
+                bridge: bridge, session: session, expectedGeneration: expectedGeneration
+            )
+        }
+        // ジョブが無いため drain ループは beginDrain 後すぐ waitForWake() で待機に入る。
+        // その状態に達するのを少し待ってからキャンセルする。
+        try? await Task.sleep(for: .milliseconds(50))
+        loop.cancel()
+
+        // teardown 相当の signalWake が二度と来ない状況でも、Task キャンセルにより
+        // waitForWake の待機から解放されてループが戻ること（ハングしないこと）。
+        await loop.value
+
+        // [NEW]（codex 再レビュー）: ループ終了後に `drainEnded` が configuration を失効させて
+        // いなければ、この世代への enqueue は「受理されるが誰も drain しない」ため
+        // continuation が永久に完了しない。失効済みなら即座に CancellationError で返る。
+        let failed = LockedBox<Error?>(nil)
+        bridge.enqueue(.job(
+            requests: [AppleTranslationRequest(sourceText: "x", clientID: "id-x")],
+            resume: { _ in },
+            fail: { error in failed.mutate { $0 = error } }
+        ), generation: expectedGeneration)
+        #expect(failed.value is CancellationError)
+    }
+
+    // MAJOR (codex 再レビュー): `awaitReady` はキャンセルされた `Task.sleep` を `try?` で
+    // 握り潰すと、キャンセル後も deadline まで busy-spin して MainActor を占有する。
+    // 呼び出し元 Task をキャンセルしたら、`readyTimeout` を待たずに素早く CancellationError で
+    // 終わることを確認する（≒10s の readyTimeout に対し十分小さい猶予で完了すること）。
+    @Test("awaitReady は呼び出し元 Task のキャンセルで busy-spin せず素早く終わる")
+    func awaitReadyPropagatesCancellationPromptly() async {
+        let bridge = TranslationSessionBridge()
+        // ready にならない世代（beginDrain を一度も呼ばない）を待たせ続ける状況を作る。
+        let generation = bridge.setLanguages(source: ja, target: en)
+
+        let waiter = Task {
+            try await bridge.awaitReady(generation: generation, timeout: .seconds(10))
+        }
+        try? await Task.sleep(for: .milliseconds(30))
+        waiter.cancel()
+
+        let start = ContinuousClock.now
+        let result = await waiter.result
+        let elapsed = ContinuousClock.now - start
+
+        // busy-spin していれば ~10s の readyTimeout 近くまでかかる。キャンセルが正しく伝播していれば
+        // 数十ms 以内に終わるはず。余裕を持って 1s 未満を要求する。
+        #expect(elapsed < .seconds(1))
+        switch result {
+        case .failure(let error):
+            #expect(error is CancellationError)
+        case .success:
+            Issue.record("キャンセルされたのに成功で終わった")
+        }
     }
 
     // MARK: helper
