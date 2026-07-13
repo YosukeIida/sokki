@@ -47,6 +47,9 @@ final class TranscriptionPipeline {
     private var timerTask: Task<Void, Never>?
     private var currentSessionID: PersistentIdentifier?
     private var recordingStartedAt: Date?
+    /// stop() の停止後処理（フラッシュ・保存・diarization）実行中フラグ。
+    /// この間は start()/stop() の再入を拒否し、後処理対象のセッション状態が差し替わるのを防ぐ。
+    private var isFinalizing = false
 
     private let logger = Logger(subsystem: "com.sokki.app", category: "diarization")
 
@@ -65,7 +68,10 @@ final class TranscriptionPipeline {
     }
 
     func start(mode: AudioCaptureManager.CaptureMode, sessionTitle: String) async throws {
-        guard !isRunning else { return }
+        // 前回録音の停止後処理（isFinalizing）中の開始は拒否する。許可すると stop() 側の
+        // await をまたいで currentSessionID / captureTask が差し替わり、旧セッションの
+        // duration 保存・diarization が新セッションへ誤適用され得る。
+        guard !isRunning, !isFinalizing else { return }
 
         if await !transcriptionEngine.isReady {
             isLoading = true
@@ -126,8 +132,10 @@ final class TranscriptionPipeline {
                         hypothesisText = segment.text
                     }
                 }
-                if segment.isConfirmed, let sid = currentSessionID {
-                    try await sessionManager.appendSegment(segment, toSessionID: sid)
+                // sessionID はこの録音開始時の値をキャプチャして使う（stop() の後処理中に
+                // currentSessionID がクリアされてもフラッシュ分のセグメント保存が失われない）。
+                if segment.isConfirmed {
+                    try await sessionManager.appendSegment(segment, toSessionID: sessionID)
                 }
             }
         }
@@ -135,15 +143,26 @@ final class TranscriptionPipeline {
 
     func stop() async throws {
         // 再入ガード: stop() が二度呼ばれても同一セッションへ diarization を二重実行しない
-        // （SpeakerProfileModel.embeddingCount の二重加算を防ぐ）。isRunning を即座に倒すことで、
-        // 後続のフラッシュ待ち中に再入した stop() も早期 return する。
-        guard isRunning else { return }
+        // （SpeakerProfileModel.embeddingCount の二重加算を防ぐ）。
+        guard isRunning, !isFinalizing else { return }
         isRunning = false
+        isFinalizing = true
+        defer { isFinalizing = false }
+
+        // 後処理対象をローカルへ固定し、共有状態は即座にクリアする。以降の await 中に
+        // 外部から状態が観測・変更されても、このセッションの後処理（duration 保存・
+        // diarization）は固定した値に対して行われる（start() は isFinalizing 中拒否）。
+        let sessionID = currentSessionID
+        let startedAt = recordingStartedAt
+        let flushTask = captureTask
+        currentSessionID = nil
+        recordingStartedAt = nil
+        captureTask = nil
 
         timerTask?.cancel()
 
         // 録音長は「開始〜停止操作まで」の実時間で確定（後続フラッシュ時間を含めない・P1-2）
-        let duration = recordingStartedAt.map { Date().timeIntervalSince($0) }
+        let duration = startedAt.map { Date().timeIntervalSince($0) }
 
         // 1. ストリームを閉じる（transcribeStream のフラッシュがトリガーされる）
         await captureManager.stopCapture()
@@ -155,7 +174,7 @@ final class TranscriptionPipeline {
         isLoading = true
         loadingMessage = "文字起こし処理中…"
         do {
-            try await captureTask?.value
+            try await flushTask?.value
         } catch is CancellationError {
             // ユーザーが強制中断した場合は無視
         } catch {
@@ -163,22 +182,17 @@ final class TranscriptionPipeline {
         }
         isLoading = false
         loadingMessage = ""
-        captureTask = nil
 
         // 録音長を保存（P1-2）。失敗してもセッション自体は保持する。
-        if let sid = currentSessionID, let duration {
+        if let sid = sessionID, let duration {
             try? await sessionManager.updateDuration(sessionID: sid, duration: duration)
         }
 
         // Phase 3: 録音全体に対して diarization をバッチ実行し、話者プロファイルを解決・付与する。
         // ここまでにセグメントは保存済みのため、diarization が失敗しても文字起こし結果は保持される。
-        if let sid = currentSessionID {
+        if let sid = sessionID {
             await runDiarizationIfEnabled(sessionID: sid)
         }
-
-        // 後処理完了。再入時に同一セッションを再処理しないよう状態をクリアする。
-        currentSessionID = nil
-        recordingStartedAt = nil
     }
 
     // MARK: - Diarization（P3）
