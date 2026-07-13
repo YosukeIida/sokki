@@ -154,12 +154,17 @@ public final class TranslationCoordinator {
         // BLOCKER: prepare 復帰後、最新でなければ作りかけの provider を破棄して離脱。
         // 状態は一切書き換えない（新しい reconcile の結果を上書きしない）。teardown() が既に
         // preparing を閉じている場合もあるが、teardown() は冪等契約なので二重 close は無害。
+        //
+        // compare-and-clear: `preparingProvider` は世代共通の単一スロットなので、より新しい
+        // 世代の activate が既にここへ自分の provider を書いている場合がある。無条件 nil 化は
+        // 新世代の所有記録を消し、その provider を closeActive が捕捉できなくする。**自分が
+        // 置いた provider のときだけ** クリアする（新世代の記録は温存）。
         guard req == requestSeq else {
-            preparingProvider = nil
+            if preparingProvider === provider { preparingProvider = nil }
             await provider.teardown()
             return
         }
-        preparingProvider = nil
+        if preparingProvider === provider { preparingProvider = nil }
 
         switch outcome {
         case .failed(let error):
