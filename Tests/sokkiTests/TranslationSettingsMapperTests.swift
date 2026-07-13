@@ -43,17 +43,29 @@ struct TranslationSettingsMapperTests {
     @Test("translationProvider の rawValue が明示プロバイダへ解決される")
     func explicitProviderResolves() {
         let ctx = TranslationSettingsMapper.routingContext(
-            from: snapshot(provider: TranslationProviderKind.deepL.rawValue),
-            registeredCloudKinds: [.deepL]
+            from: snapshot(provider: TranslationProviderKind.geminiLive.rawValue),
+            registeredCloudKinds: [.geminiLive]
         )
-        #expect(ctx.preferred == .deepL)
-        #expect(ctx.registeredCloudKinds == [.deepL])
+        #expect(ctx.preferred == .geminiLive)
+        #expect(ctx.registeredCloudKinds == [.geminiLive])
     }
 
     @Test("不正な rawValue は auto にフェイルセーフする")
     func invalidProviderFallsBackToAuto() {
         let ctx = TranslationSettingsMapper.routingContext(
             from: snapshot(provider: "no-such-provider"),
+            registeredCloudKinds: []
+        )
+        #expect(ctx.preferred == .auto)
+    }
+
+    /// D-18（DeepL 撤去）の回帰テスト。撤去以前に `translationProvider = "deepL"` が
+    /// 永続化されたユーザー設定を読み込んでも、`TranslationProviderKind(rawValue:)` が
+    /// `nil` を返して `.auto` にフォールバックすること（クラッシュ・fail-open しない）。
+    @Test("撤去済み 'deepL' の永続化済み rawValue は auto にフェイルセーフする（D-18 回帰）")
+    func removedDeepLProviderFallsBackToAuto() {
+        let ctx = TranslationSettingsMapper.routingContext(
+            from: snapshot(provider: "deepL"),
             registeredCloudKinds: []
         )
         #expect(ctx.preferred == .auto)

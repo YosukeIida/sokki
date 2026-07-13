@@ -60,7 +60,6 @@ public enum TranslationProviderKind: String, Sendable, CaseIterable, Codable {
     case apple
     case geminiLive
     case googleCloudV3
-    case deepL
 
     /// この種別が構造的にオンデバイス（クラウド送信を伴わない）であることが確定するか。
     public var isOnDeviceImplied: Bool { self == .apple }

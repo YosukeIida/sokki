@@ -111,11 +111,11 @@ extension KeychainService: APIKeyChecking {
 extension KeychainService {
     /// 指定 `providerID` の実キーを取得する。未登録なら `nil`。
     ///
-    /// TASK-22（`feat/task-22-deepl-provider`）で定義された `APIKeyProviding`
+    /// `Translation/BYO/APIKeyProviding.swift` で定義された `APIKeyProviding`
     /// （`func apiKey(for providerID: String) async -> String?`）とシグネチャを
-    /// 一致させてある。同ブランチのマージ後は `extension KeychainService: APIKeyProviding {}`
-    /// を追加するだけで適合できる想定（現時点では本ブランチに `APIKeyProviding` が
-    /// 存在しないため、適合宣言自体は行わない）。
+    /// 一致させてある。実際に BYO provider（Gemini Live 等）から利用する際は
+    /// `extension KeychainService: APIKeyProviding {}` を追加するだけで適合できる想定
+    /// （現時点では明示的な適合宣言はまだ行っていない）。
     public func apiKey(for providerID: String) async -> String? {
         try? retrieve(for: providerID)
     }

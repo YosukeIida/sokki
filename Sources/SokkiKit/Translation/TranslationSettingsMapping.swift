@@ -51,9 +51,10 @@ public struct TranslationSettingsSnapshot: Sendable, Equatable {
 /// `docs/translation-architecture.md` §7）。
 public enum TranslationSettingsMapper {
     /// auto フォールバックの既定試行順。Google Cloud v3 は OAuth2 未実装のため後回し
-    /// （`docs/translation-architecture.md` §0 訂正 #8 / backlog TASK-22）。
+    /// （`docs/translation-architecture.md` §0 訂正 #8 / backlog TASK-22）。設計判断 D-18 により
+    /// BYO REST 翻訳プロバイダは撤去済みで、クラウド BYO は Gemini Live のみ。
     public static let defaultCloudPreferenceOrder: [TranslationProviderKind] = [
-        .deepL, .geminiLive, .googleCloudV3,
+        .geminiLive, .googleCloudV3,
     ]
 
     /// 設定スナップショットを `TranslationRouter.resolve` の入力へ変換する。

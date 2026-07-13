@@ -79,7 +79,7 @@ actor ControllableTeardownProvider: TranslationProvider {
     private(set) var teardownCallCount = 0
     private(set) var prepareCallCount = 0
 
-    init(providerID: String = "deepL", isOnDevice: Bool = false) {
+    init(providerID: String = "geminiLive", isOnDevice: Bool = false) {
         self.providerID = providerID
         self.isOnDevice = isOnDevice
     }

@@ -36,7 +36,7 @@ struct TranslationDIWiringTests {
     @Test("PlaceholderAPIKeyChecking は常にキー無しを返す（TASK-23 前は fail-closed）")
     func placeholderAPIKeyCheckingHasNoKeys() {
         let checking = PlaceholderAPIKeyChecking()
-        #expect(checking.hasKey(for: "deepL") == false)
+        #expect(checking.hasKey(for: "googleCloudV3") == false)
         #expect(checking.hasKey(for: "geminiLive") == false)
         #expect(checking.hasKey(for: "apple") == false)
     }
