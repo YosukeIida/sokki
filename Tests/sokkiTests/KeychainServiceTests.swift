@@ -57,6 +57,9 @@ struct KeychainServiceTests {
     @Test("delete 後は retrieve が nil を返す")
     func deleteRemovesValue() throws {
         let service = makeService()
+        // `delete`（テスト対象の呼び出し）自体が失敗した場合でも項目を残さないよう、
+        // store の前に defer を設定しておく。
+        defer { try? service.delete(for: "deepL") }
 
         try service.store("to-be-deleted", for: "deepL")
         try service.delete(for: "deepL")
@@ -93,6 +96,8 @@ struct KeychainServiceTests {
     @Test("hasKey は未登録→登録→削除の遷移で false→true→false になる")
     func hasKeyReflectsTransitions() throws {
         let service = makeService()
+        // 途中の `#expect` 失敗や `delete`（テスト対象）自体の失敗でも項目を残さない。
+        defer { try? service.delete(for: "deepL") }
         let checking: any APIKeyChecking = service
 
         #expect(checking.hasKey(for: "deepL") == false)

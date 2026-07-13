@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Security
 
 public struct SettingsView: View {
     public init() {}
@@ -15,6 +16,11 @@ public struct SettingsView: View {
     // 保存済みキーは再表示しない — 表示できるのは「設定済みか否か」のみ。
     @State private var apiKeyInput: String = ""
     @State private var apiKeyErrorMessage: String?
+    /// `hasKey(for:)`（Keychain への同期問い合わせ）のキャッシュ。SwiftUI の `body` は
+    /// 状態変化ごとに再評価されるため、computed property に直接 Keychain 問い合わせを
+    /// 置くと（`SecItemCopyMatching` が）キー入力の一文字ごとに繰り返し呼ばれてしまう。
+    /// 表示・プロバイダ切り替え・保存・削除の各イベントでのみ明示的に更新する。
+    @State private var hasStoredAPIKeyCache: Bool = false
 
     private var settings: AppSettingsModel {
         if let s = settingsArray.first { return s }
@@ -46,11 +52,14 @@ public struct SettingsView: View {
             Task { await deps.reconcileTranslation(snapshot) }
         }
         // プロバイダ切り替え時、入力途中のキー文字列を別プロバイダの account へ
-        // 誤って保存しないよう必ずクリアする。
+        // 誤って保存しないよう必ずクリアする。切り替え先プロバイダのキー有無も
+        // 合わせて再問い合わせする。
         .onChange(of: settings.translationProvider) { _, _ in
             apiKeyInput = ""
             apiKeyErrorMessage = nil
+            refreshAPIKeyStatus()
         }
+        .onAppear { refreshAPIKeyStatus() }
     }
 
     private var appearanceTab: some View {
@@ -156,7 +165,7 @@ public struct SettingsView: View {
             }
             if requiresAPIKey {
                 Section("API キー（\(byoDisplayName(selectedProviderKind))）") {
-                    if hasStoredAPIKey {
+                    if hasStoredAPIKeyCache {
                         Label("設定済み", systemImage: "checkmark.circle.fill")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -167,7 +176,7 @@ public struct SettingsView: View {
                         Button("保存") { saveAPIKey() }
                             .disabled(apiKeyInput.isEmpty)
                         Button("削除", role: .destructive) { deleteAPIKey() }
-                            .disabled(!hasStoredAPIKey)
+                            .disabled(!hasStoredAPIKeyCache)
                     }
                     if let apiKeyErrorMessage {
                         Text(apiKeyErrorMessage)
@@ -217,8 +226,10 @@ public struct SettingsView: View {
         selectedProviderKind.isOnDeviceImplied == false && selectedProviderKind != .auto
     }
 
-    private var hasStoredAPIKey: Bool {
-        deps.keychainService.hasKey(for: selectedProviderKind.rawValue)
+    /// `hasStoredAPIKeyCache` を現在選択中のプロバイダについて Keychain へ再問い合わせする。
+    /// 表示直後・プロバイダ切り替え・保存/削除成功時にのみ呼ぶ（`body` から直接呼ばない）。
+    private func refreshAPIKeyStatus() {
+        hasStoredAPIKeyCache = deps.keychainService.hasKey(for: selectedProviderKind.rawValue)
     }
 
     private func saveAPIKey() {
@@ -226,10 +237,13 @@ public struct SettingsView: View {
             try deps.keychainService.store(apiKeyInput, for: selectedProviderKind.rawValue)
             apiKeyInput = ""
             apiKeyErrorMessage = nil
+            refreshAPIKeyStatus()
             Task { await deps.reconcileTranslation(translationSnapshot) }
         } catch {
-            // キー文字列そのものはエラーメッセージに含めない。
-            apiKeyErrorMessage = "保存に失敗しました。もう一度お試しください。"
+            // キー文字列そのものはエラーメッセージに含めない。Keychain へのアクセスが
+            // ユーザーに拒否された/対話不可（無署名・ad-hoc 配布時は署名 identity が
+            // 不安定なため発生しうる）場合は、一般的な保存失敗と区別して案内する。
+            apiKeyErrorMessage = Self.userMessage(for: error, action: "保存")
         }
     }
 
@@ -238,10 +252,23 @@ public struct SettingsView: View {
             try deps.keychainService.delete(for: selectedProviderKind.rawValue)
             apiKeyInput = ""
             apiKeyErrorMessage = nil
+            refreshAPIKeyStatus()
             Task { await deps.reconcileTranslation(translationSnapshot) }
         } catch {
-            apiKeyErrorMessage = "削除に失敗しました。もう一度お試しください。"
+            apiKeyErrorMessage = Self.userMessage(for: error, action: "削除")
         }
+    }
+
+    /// `KeychainService.KeychainError` の `OSStatus` を見て、Keychain アクセスが拒否/対話
+    /// 不可だった場合は復旧の手がかりを示すメッセージにする。それ以外は汎用文言のみ
+    /// （キー文字列そのものは一切含めない）。
+    private static func userMessage(for error: Error, action: String) -> String {
+        if case .unexpectedStatus(let status) = error as? KeychainService.KeychainError,
+           status == errSecAuthFailed || status == errSecInteractionNotAllowed {
+            return "Keychain へのアクセスが許可されませんでした。"
+                + "「キーチェーンアクセス」App でこのキーの許可設定を確認してください。"
+        }
+        return "\(action)に失敗しました。もう一度お試しください。"
     }
 
     private var llmTab: some View {
