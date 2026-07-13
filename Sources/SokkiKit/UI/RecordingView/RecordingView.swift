@@ -7,16 +7,32 @@ struct RecordingView: View {
     @Environment(AppDependencyContainer.self) private var deps
     @Environment(\.sokkiTokens) private var tokens
     @Query private var settingsArray: [AppSettingsModel]
+    @Environment(\.modelContext) private var modelContext
     private var pipeline: TranscriptionPipeline { deps.pipeline }
     private var meetingDetector: MeetingDetector { deps.meetingDetector }
     private var meetingDetectionEnabled: Bool { settingsArray.first?.meetingDetectionEnabled ?? false }
     private var transcriptionLanguage: String { settingsArray.first?.transcriptionLanguage ?? "auto" }
+
+    private var settings: AppSettingsModel {
+        if let s = settingsArray.first { return s }
+        let s = AppSettingsModel()
+        modelContext.insert(s)
+        return s
+    }
+
+    private var translationSnapshot: TranslationSettingsSnapshot {
+        TranslationSettingsSnapshot(settings)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             captureModeSelector
                 .padding(.horizontal)
                 .padding(.top, 12)
+
+            translationToggleBar
+                .padding(.horizontal)
+                .padding(.top, 8)
 
             Divider()
                 .padding(.top, 8)
@@ -56,10 +72,41 @@ struct RecordingView: View {
             controlBar
                 .padding()
         }
+        // 翻訳設定が変わるたびに Coordinator を再評価する（録音中の ON/OFF 切替も含む）。
+        // initial: true — `onChange` は初期表示では発火しないため、これが無いと
+        // 前回セッションで translationEnabled=true のまま永続化された状態でこの
+        // View を開いても（≒ アプリ再起動直後）Coordinator は非アクティブのまま
+        // 同期されず、トグルは ON 表示なのに実体は未起動という不整合が残る
+        // （TASK-20 レビュー指摘）。`reconcile` 自身が冒頭で必ず `teardown()` して
+        // から再評価するため、表示のたびに呼んでも冪等・安全。
+        .onChange(of: translationSnapshot, initial: true) { _, snapshot in
+            Task { await deps.reconcileTranslation(snapshot) }
+        }
         .onAppear { syncMeetingDetection() }
         .onDisappear { syncMeetingDetection() }
         .onChange(of: meetingDetectionEnabled) { _, _ in syncMeetingDetection() }
         .onChange(of: pipeline.isRunning) { _, _ in syncMeetingDetection() }
+    }
+
+    /// 録音中でも切り替えられる翻訳 ON/OFF の軽量トグル。詳細設定（プロバイダ/言語）は
+    /// SettingsView に置く。
+    ///
+    /// macOS の `.switch` スタイル Toggle は Form/List 外では title を視覚表示しないため、
+    /// 独立した Text をラベルとして添える（`.labelsHidden()` で Toggle 側の重複表示を抑止）。
+    private var translationToggleBar: some View {
+        HStack(spacing: 6) {
+            Text("翻訳")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Toggle("翻訳", isOn: Binding(
+                get: { settings.translationEnabled },
+                set: { settings.translationEnabled = $0 }
+            ))
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .accessibilityIdentifier("translationToggle")
+        }
     }
 
     /// 設定（ON/OFF）と録音中かどうかから、会議検出ポーリングの開始/停止を決める。
