@@ -57,6 +57,14 @@ public struct SettingsView: View {
                     Text("medium").tag("openai_whisper-medium")
                     Text("small").tag("openai_whisper-small")
                 }
+                Picker("文字起こし言語", selection: Binding(
+                    get: { settings.transcriptionLanguage },
+                    set: { settings.transcriptionLanguage = $0 }
+                )) {
+                    ForEach(TranscriptionLanguageOption.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option.rawValue)
+                    }
+                }
             }
             Section("会議自動検出") {
                 Toggle("会議を検出したら録音を提案する", isOn: Binding(

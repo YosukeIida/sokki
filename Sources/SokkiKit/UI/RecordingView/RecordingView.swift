@@ -9,6 +9,7 @@ struct RecordingView: View {
     private var pipeline: TranscriptionPipeline { deps.pipeline }
     private var meetingDetector: MeetingDetector { deps.meetingDetector }
     private var meetingDetectionEnabled: Bool { settingsArray.first?.meetingDetectionEnabled ?? false }
+    private var transcriptionLanguage: String { settingsArray.first?.transcriptionLanguage ?? "auto" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -165,7 +166,11 @@ struct RecordingView: View {
             }
         }
         do {
-            try await pipeline.start(mode: captureMode, sessionTitle: "")
+            try await pipeline.start(
+                mode: captureMode,
+                sessionTitle: "",
+                transcriptionLanguage: transcriptionLanguage
+            )
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -249,26 +254,34 @@ struct RecordingView: View {
 
 #if DEBUG
 #Preview("アイドル") {
+    let deps = AppDependencyContainer.preview(pipeline: PreviewPipeline.idle())
     RecordingView()
-        .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.idle()))
+        .environment(deps)
+        .modelContainer(deps.modelContainer)
         .frame(width: 600, height: 500)
 }
 
 #Preview("ローディング中（ダウンロード進捗あり）") {
+    let deps = AppDependencyContainer.preview(pipeline: PreviewPipeline.loading())
     RecordingView()
-        .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.loading()))
+        .environment(deps)
+        .modelContainer(deps.modelContainer)
         .frame(width: 600, height: 500)
 }
 
 #Preview("ローディング中（メモリロード・進捗なし）") {
+    let deps = AppDependencyContainer.preview(pipeline: PreviewPipeline.loadingIntoMemory())
     RecordingView()
-        .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.loadingIntoMemory()))
+        .environment(deps)
+        .modelContainer(deps.modelContainer)
         .frame(width: 600, height: 500)
 }
 
 #Preview("録音中（テキストあり）") {
+    let deps = AppDependencyContainer.preview(pipeline: PreviewPipeline.recordingWithText())
     RecordingView()
-        .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.recordingWithText()))
+        .environment(deps)
+        .modelContainer(deps.modelContainer)
         .frame(width: 600, height: 500)
 }
 #endif

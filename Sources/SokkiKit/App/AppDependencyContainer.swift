@@ -4,6 +4,7 @@ import SwiftData
 @Observable
 @MainActor
 public final class AppDependencyContainer {
+    let modelContainer: ModelContainer
     let captureManager: AudioCaptureManager
     let transcriptionEngine: WhisperKitEngine
     let diarizationEngine: SpeakerKitEngine
@@ -14,6 +15,7 @@ public final class AppDependencyContainer {
     let meetingDetector: MeetingDetector
 
     public init(modelContainer: ModelContainer) {
+        self.modelContainer = modelContainer
         let ctx = ModelContext(modelContainer)
 
         captureManager = AudioCaptureManager()

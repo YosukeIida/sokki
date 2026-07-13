@@ -20,6 +20,8 @@ actor WhisperKitEngine: TranscriptionEngine {
     private var whisperKit: WhisperKit?
     // nil = デバイスに合った推奨モデルを自動選択
     private let modelVariant: String?
+    // AppSettingsModel.transcriptionLanguage の値。nil/"auto" = 自動検出。
+    private var languageSetting: String?
 
     private(set) var isReady = false
 
@@ -58,10 +60,15 @@ actor WhisperKitEngine: TranscriptionEngine {
         }
     }
 
+    func setTranscriptionLanguage(_ settingValue: String?) async {
+        languageSetting = settingValue
+    }
+
     func transcribe(audioArray: [Float]) async throws -> [any TranscriptionSegment] {
         guard let wk = whisperKit else { throw TranscriptionEngineError.notPrepared }
 
-        let results: [TranscriptionResult] = try await wk.transcribe(audioArray: audioArray)
+        let decodeOptions = makeWhisperDecodingOptions(languageSetting: languageSetting)
+        let results: [TranscriptionResult] = try await wk.transcribe(audioArray: audioArray, decodeOptions: decodeOptions)
         return results.flatMap(\.segments).compactMap { seg in
             let text = cleanText(seg.text)
             guard !text.isEmpty else { return nil }
