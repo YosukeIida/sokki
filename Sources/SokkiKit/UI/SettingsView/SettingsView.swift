@@ -35,7 +35,13 @@ public struct SettingsView: View {
         }
         .frame(width: 480, height: 320)
         // 翻訳設定が変わるたびに Coordinator を再評価する（fail-closed に乗る）。
-        .onChange(of: translationSnapshot) { _, snapshot in
+        // initial: true — `onChange` は初期表示では発火しないため、これが無いと
+        // 前回セッションで translationEnabled=true のまま永続化された状態でこの
+        // View を開いても Coordinator は非アクティブのまま同期されない（TASK-20
+        // レビュー指摘）。表示のたびに reconcile するのは冗長だが、`reconcile` 自身が
+        // 冒頭で必ず `teardown()` してから再評価するため冪等・安全（重複呼び出しも
+        // 世代トークンで無害化される。`TranslationCoordinator.reconcile` 参照）。
+        .onChange(of: translationSnapshot, initial: true) { _, snapshot in
             Task { await deps.reconcileTranslation(snapshot) }
         }
     }

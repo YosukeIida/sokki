@@ -57,7 +57,13 @@ struct RecordingView: View {
                 .padding()
         }
         // 翻訳設定が変わるたびに Coordinator を再評価する（録音中の ON/OFF 切替も含む）。
-        .onChange(of: translationSnapshot) { _, snapshot in
+        // initial: true — `onChange` は初期表示では発火しないため、これが無いと
+        // 前回セッションで translationEnabled=true のまま永続化された状態でこの
+        // View を開いても（≒ アプリ再起動直後）Coordinator は非アクティブのまま
+        // 同期されず、トグルは ON 表示なのに実体は未起動という不整合が残る
+        // （TASK-20 レビュー指摘）。`reconcile` 自身が冒頭で必ず `teardown()` して
+        // から再評価するため、表示のたびに呼んでも冪等・安全。
+        .onChange(of: translationSnapshot, initial: true) { _, snapshot in
             Task { await deps.reconcileTranslation(snapshot) }
         }
     }
