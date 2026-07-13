@@ -11,6 +11,7 @@ public final class AppDependencyContainer {
     let speakerProfileStore: SpeakerProfileStore
     let sessionManager: SessionManager
     var pipeline: TranscriptionPipeline
+    let importer: AudioFileImporter
     let coordinator: ProcessingCoordinator
     /// 会議自動検出（TASK-15）。`start()` を呼ぶまで SCShareableContent には触れない。
     let meetingDetector: MeetingDetector
@@ -36,6 +37,12 @@ public final class AppDependencyContainer {
             sessionManager: sessionManager
         )
         self.pipeline = pipeline
+
+        importer = AudioFileImporter(
+            transcriptionEngine: transcriptionEngine,
+            sessionManager: sessionManager,
+            pipeline: pipeline
+        )
 
         // 後処理オーケストレータ。runner は Pipeline のジョブディスパッチに委譲する。
         coordinator = ProcessingCoordinator(runner: { [weak pipeline] job in

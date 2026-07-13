@@ -5,11 +5,25 @@ import SwiftData
 actor SessionManager {
 
     func createSession(title: String, mode: AudioCaptureManager.CaptureMode) throws -> PersistentIdentifier {
-        let path = makeAudioFilePath(title: title)
+        let path = makeAudioFilePath(title: title, fileExtension: "m4a")
         let session = SessionModel(title: title, audioFilePath: path, captureMode: mode.rawValue)
         modelContext.insert(session)
         try modelContext.save()
         return session.persistentModelID
+    }
+
+    /// ファイルインポート用セッションを作成する（TASK-34 / P4-3）。`captureMode` は "file" 固定。
+    /// 呼び出し元は返却された `audioURL` へ実ファイルをコピー/変換して書き込む。
+    /// 音声の取り込みに失敗した場合は `deleteSession(persistentID:)` で後始末できる。
+    func createImportedSession(
+        title: String,
+        fileExtension: String
+    ) throws -> (id: PersistentIdentifier, audioURL: URL) {
+        let path = makeAudioFilePath(title: title, fileExtension: fileExtension)
+        let session = SessionModel(title: title, audioFilePath: path, captureMode: "file")
+        modelContext.insert(session)
+        try modelContext.save()
+        return (session.persistentModelID, URL(fileURLWithPath: path))
     }
 
     func appendSegment(_ segment: any TranscriptionSegment, toSessionID sessionID: PersistentIdentifier) throws {
@@ -134,10 +148,20 @@ actor SessionManager {
         try modelContext.save()
     }
 
-    private func makeAudioFilePath(title: String) -> String {
+    /// `PersistentIdentifier` 経由でセッションを削除する（ファイルインポート失敗時の後始末用・TASK-34）。
+    func deleteSession(persistentID: PersistentIdentifier) throws {
+        guard let session = modelContext.model(for: persistentID) as? SessionModel else { return }
+        if let audioFileURL = session.audioFileURL {
+            try? FileManager.default.removeItem(at: audioFileURL)
+        }
+        modelContext.delete(session)
+        try modelContext.save()
+    }
+
+    private func makeAudioFilePath(title: String, fileExtension: String) -> String {
         let dir = Self.recordingsBaseDirectory()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let filename = "\(title)_\(UUID().uuidString.prefix(8)).m4a"
+        let filename = "\(title)_\(UUID().uuidString.prefix(8)).\(fileExtension)"
         return dir.appendingPathComponent(filename).path
     }
 
