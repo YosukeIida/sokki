@@ -23,6 +23,9 @@ public protocol TranscriptionEngine: Actor {
     func transcribeStream(
         audioChunks: AsyncStream<AudioChunk>
     ) -> AsyncThrowingStream<any TranscriptionSegment, Error>
+    /// 文字起こし言語を設定する。AppSettingsModel.transcriptionLanguage の値（"auto" / "ja" / ... ）をそのまま渡す。
+    /// "auto" または nil の場合は自動検出。デフォルト実装は何もしない（既存 conformer のソース互換性を保つ）。
+    func setTranscriptionLanguage(_ settingValue: String?) async
     var isReady: Bool { get }
     var modelIdentifier: String { get }
 }
@@ -38,6 +41,8 @@ public extension TranscriptionEngine {
     func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws {
         try await prepare()
     }
+
+    func setTranscriptionLanguage(_ settingValue: String?) async {}
 }
 
 enum TranscriptionEngineError: Error {
