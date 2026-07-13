@@ -7,6 +7,8 @@ struct RecordingView: View {
     @Environment(AppDependencyContainer.self) private var deps
     @Query private var settingsArray: [AppSettingsModel]
     private var pipeline: TranscriptionPipeline { deps.pipeline }
+    private var meetingDetector: MeetingDetector { deps.meetingDetector }
+    private var meetingDetectionEnabled: Bool { settingsArray.first?.meetingDetectionEnabled ?? false }
     private var transcriptionLanguage: String { settingsArray.first?.transcriptionLanguage ?? "auto" }
 
     var body: some View {
@@ -32,6 +34,8 @@ struct RecordingView: View {
                     errorBanner(err) { errorMessage = nil }
                 } else if let saveErr = pipeline.recordingSaveErrorMessage {
                     errorBanner(saveErr) { pipeline.dismissRecordingSaveError() }
+                } else if !pipeline.isRunning, let suggestion = meetingDetector.suggestion {
+                    meetingSuggestionBanner(suggestion)
                 }
             }
             .frame(maxHeight: .infinity)
@@ -40,6 +44,34 @@ struct RecordingView: View {
 
             controlBar
                 .padding()
+        }
+        .onAppear { syncMeetingDetection() }
+        .onDisappear { syncMeetingDetection() }
+        .onChange(of: meetingDetectionEnabled) { _, _ in syncMeetingDetection() }
+        .onChange(of: pipeline.isRunning) { _, _ in syncMeetingDetection() }
+    }
+
+    /// 設定（ON/OFF）と録音中かどうかから、会議検出ポーリングの開始/停止を決める。
+    /// OFF の間は `start()` を呼ばないため SCShareableContent には一切触れない。
+    ///
+    /// `deps.meetingDetector` は `AppDependencyContainer` が保持する単一のインスタンスで、
+    /// `ContentView` はサイドバーの `NavigationLink` 先と detail の既定表示の2箇所に
+    /// `RecordingView()` を持つ。ナビゲーション遷移中は一方の `onDisappear` ともう一方の
+    /// `onAppear` が前後不定の順で発火しうるため、`onDisappear` でも無条件に `stop()` せず
+    /// この関数（現在の望ましい状態を毎回再計算する冪等な処理）に統一している。
+    /// これによりどちらが先に発火しても最終的な状態は「有効かつ非録音中なら動作中」に収束する。
+    private func syncMeetingDetection() {
+        if meetingDetectionEnabled {
+            if pipeline.isRunning {
+                // 録音中はポーリングを止めるが、拒否状態は維持する（pause）。
+                // 録音の開始は会議の終了ではないため、ここで stop() すると
+                // 「拒否 → 手動録音 → 録音停止」で同じ会議が再提案されてしまう。
+                meetingDetector.pause()
+            } else {
+                meetingDetector.start()
+            }
+        } else {
+            meetingDetector.stop()
         }
     }
 
@@ -86,6 +118,61 @@ struct RecordingView: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             .padding()
             Spacer()
+        }
+    }
+
+    private func meetingSuggestionBanner(_ suggestion: MeetingCandidate) -> some View {
+        VStack {
+            HStack(spacing: 8) {
+                Image(systemName: "video.fill")
+                    .foregroundStyle(.blue)
+                Text("\(suggestion.app.displayName) の会議を検出しました。録音を開始しますか？")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Button("後で") {
+                    meetingDetector.dismissCurrentSuggestion()
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                Button("開始") {
+                    meetingDetector.acceptCurrentSuggestion()
+                    Task { await startRecording() }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+            .padding(12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .padding()
+            Spacer()
+        }
+        .accessibilityIdentifier("meetingSuggestionBanner")
+    }
+
+    /// マイク権限チェックを行った上で録音を開始する。録音ボタンと会議検出バナーの「開始」から共有する。
+    private func startRecording() async {
+        errorMessage = nil
+        let status = PermissionManager.microphoneStatus()
+        if status == .denied {
+            errorMessage = "マイクへのアクセスが拒否されています。システム設定 > プライバシーとセキュリティ > マイク で許可してください。"
+            return
+        }
+        if status == .notDetermined {
+            let granted = await PermissionManager.requestMicrophoneAccess()
+            if !granted {
+                errorMessage = "マイクへのアクセスが必要です。"
+                return
+            }
+        }
+        do {
+            try await pipeline.start(
+                mode: captureMode,
+                sessionTitle: "",
+                transcriptionLanguage: transcriptionLanguage
+            )
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -136,32 +223,14 @@ struct RecordingView: View {
 
             Button {
                 Task {
-                    do {
-                        if pipeline.isRunning {
+                    if pipeline.isRunning {
+                        do {
                             try await pipeline.stop()
-                        } else {
-                            errorMessage = nil
-                            // マイク権限チェック
-                            let status = PermissionManager.microphoneStatus()
-                            if status == .denied {
-                                errorMessage = "マイクへのアクセスが拒否されています。システム設定 > プライバシーとセキュリティ > マイク で許可してください。"
-                                return
-                            }
-                            if status == .notDetermined {
-                                let granted = await PermissionManager.requestMicrophoneAccess()
-                                if !granted {
-                                    errorMessage = "マイクへのアクセスが必要です。"
-                                    return
-                                }
-                            }
-                            try await pipeline.start(
-                                mode: captureMode,
-                                sessionTitle: "",
-                                transcriptionLanguage: transcriptionLanguage
-                            )
+                        } catch {
+                            errorMessage = error.localizedDescription
                         }
-                    } catch {
-                        errorMessage = error.localizedDescription
+                    } else {
+                        await startRecording()
                     }
                 }
             } label: {

@@ -11,6 +11,8 @@ public final class AppDependencyContainer {
     let speakerProfileStore: SpeakerProfileStore
     let sessionManager: SessionManager
     var pipeline: TranscriptionPipeline
+    /// 会議自動検出（TASK-15）。`start()` を呼ぶまで SCShareableContent には触れない。
+    let meetingDetector: MeetingDetector
 
     public init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
@@ -21,6 +23,7 @@ public final class AppDependencyContainer {
         diarizationEngine = SpeakerKitEngine()
         speakerProfileStore = SpeakerProfileStore(modelContext: ctx)
         sessionManager = SessionManager(modelContainer: modelContainer)
+        meetingDetector = MeetingDetector()
 
         pipeline = TranscriptionPipeline(
             captureManager: captureManager,
