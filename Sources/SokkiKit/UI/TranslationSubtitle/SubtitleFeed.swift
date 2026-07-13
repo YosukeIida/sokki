@@ -37,7 +37,18 @@ public struct SubtitleLine: Identifiable, Equatable, Sendable {
 @Observable
 public final class SubtitleFeed {
     /// 表示・保持する最新行数。これを超えた古い確定原文はトリムする（メモリ抑制）。
-    public var maxLines: Int
+    ///
+    /// 1 未満を代入すると 1 に丸め、即座に再トリムする（`suffix`/`removeFirst` の前提条件を
+    /// 崩さないため。init 時だけでなく setter 経由の変更でも安全に保つ）。
+    public var maxLines: Int {
+        didSet {
+            if maxLines < 1 {
+                maxLines = 1
+                return   // 再度 didSet が走り、以降の trim() まで到達する。
+            }
+            trim()
+        }
+    }
 
     private struct OriginalLine {
         let text: String
@@ -103,14 +114,24 @@ public final class SubtitleFeed {
 
     /// 保持する原文を最新 `maxLines` 件に抑える。
     ///
-    /// 確定セグメントは通常 `sourceTime` 昇順（= 挿入順）で到着するため、挿入順で古いものから
-    /// 落とす。順序が乱れうる将来のために、落とすのは表示に載らない最古行に限る。
+    /// `makeLines` と同じ並び基準（`sourceTime` 昇順・同時刻は挿入順でタイブレーク）で並べ、
+    /// その並びで表示に載らない古い側から落とす。確定セグメントは通常 `sourceTime` 昇順
+    /// （= 挿入順）で到着するため大半は挿入順の先頭と一致するが、順序が乱れて到着した場合でも
+    /// 「表示される最新 `maxLines` 行」と「保持される行」を一致させる（単純な挿入順トリムだと
+    /// 両者がずれる）。
     private func trim() {
         guard order.count > maxLines else { return }
         let dropCount = order.count - maxLines
-        for id in order.prefix(dropCount) {
+        let bySourceTime = order.enumerated().sorted { lhs, rhs in
+            let lhsTime = originals[lhs.element]?.sourceTime ?? -.infinity
+            let rhsTime = originals[rhs.element]?.sourceTime ?? -.infinity
+            if lhsTime != rhsTime { return lhsTime < rhsTime }
+            return lhs.offset < rhs.offset   // 同時刻は挿入順でタイブレーク。
+        }
+        let dropIDs = Set(bySourceTime.prefix(dropCount).map(\.element))
+        for id in dropIDs {
             originals[id] = nil
         }
-        order.removeFirst(dropCount)
+        order.removeAll { dropIDs.contains($0) }
     }
 }

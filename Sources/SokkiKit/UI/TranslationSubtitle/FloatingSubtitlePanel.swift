@@ -6,6 +6,14 @@ import SwiftUI
 ///
 /// 受け入れ基準 #2 の要求を満たす AppKit 属性を集約する:
 /// - `sharingType = .none`: **画面共有・画面収録に映り込まない**（最重要）。
+///   ⚠️ **既知の制約（実機検証で要確認）**: macOS 15 以降、ウィンドウ合成は
+///   単一フレームバッファに統合されており、`ScreenCaptureKit` ベースのキャプチャ
+///   （Zoom 等の最近の画面共有・QuickTime の画面収録が使う経路）は `sharingType` を
+///   無視するとの報告がある（参考: `NSWindow.SharingType` は legacy な CoreGraphics
+///   キャプチャ経路向けの指定で、ScreenCaptureKit には効かない）。つまり本フラグは
+///   **最新の画面共有では映り込み防止を保証しない可能性がある**。PR 本文の実機検証
+///   項目（Zoom / QuickTime での実キャプチャ確認）で必ず確認し、映り込む場合は
+///   「共有中は自動で隠す」等の UX フォールバックを別途検討すること。
 /// - `level = .floating` + `isFloatingPanel`: 常に最前面。
 /// - `.nonactivatingPanel`: 前面化してもアプリをアクティブ化せず、背後の会議アプリの
 ///   フォーカスを奪わない。
@@ -18,7 +26,12 @@ final class FloatingSubtitlePanel: NSPanel {
     init(contentRect: NSRect) {
         super.init(
             contentRect: contentRect,
-            styleMask: [.nonactivatingPanel, .titled, .closable, .resizable, .fullSizeContentView],
+            // .closable は意図的に外す: 破棄は FloatingSubtitleController.close() に一本化する
+            // 契約（クラスコメント参照）。.closable を入れるとネイティブの赤クローズボタンで
+            // ユーザーが直接ウィンドウを閉じられてしまい、コントローラの isVisible や
+            // RecordingView 側の表示状態と実際のパネル状態がずれる（次のトグルで2回操作が
+            // 必要になる）。
+            styleMask: [.nonactivatingPanel, .titled, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )

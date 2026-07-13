@@ -26,6 +26,14 @@ struct FloatingSubtitlePanelTests {
         #expect(makePanel().styleMask.contains(.nonactivatingPanel))
     }
 
+    @Test("styleMask に closable を含まない（ネイティブクローズボタンによる状態不整合を避ける）")
+    func styleMaskExcludesClosable() {
+        // .closable が有効だとネイティブの赤クローズボタンで直接閉じられてしまい、
+        // FloatingSubtitleController.isVisible / RecordingView 側の表示状態と実際の
+        // パネル状態がずれる。破棄は close() への一本化が契約なので .closable は含めない。
+        #expect(makePanel().styleMask.contains(.closable) == false)
+    }
+
     @Test("背景ドラッグ移動可・全 Space 表示・アプリ非アクティブ化")
     func overlayBehaviors() {
         let panel = makePanel()

@@ -48,6 +48,15 @@ struct RecordingView: View {
             controlBar
                 .padding()
         }
+        .onChange(of: pipeline.isRunning) { _, isRunning in
+            // 録音停止でフローティング字幕トグルは UI から消えるが、パネル自体は自動では
+            // 閉じないため、放置すると最前面に残り続ける（トグルも消えて閉じる手段が無くなる）。
+            // 録音停止を明示的なセッション境界として扱い、ここで破棄する。
+            if !isRunning {
+                floatingSubtitle?.close()
+                floatingSubtitleVisible = false
+            }
+        }
         .onDisappear {
             // 所有者による明示破棄（@MainActor クラスの AppKit 破棄は deinit に頼らない）。
             floatingSubtitle?.close()

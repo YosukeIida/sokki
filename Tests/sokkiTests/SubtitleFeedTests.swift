@@ -111,4 +111,39 @@ struct SubtitleFeedTests {
         #expect(lines.count == 1)
         #expect(lines.first?.original == "b")
     }
+
+    @Test("init 後に maxLines を 0/負値へ変更しても 1 に丸められ、クラッシュしない")
+    func maxLinesSetterClampsAfterInit() {
+        let feed = SubtitleFeed(maxLines: 6)
+        feed.pushConfirmed(id: UUID(), text: "a", sourceTime: 0)
+        feed.pushConfirmed(id: UUID(), text: "b", sourceTime: 1)
+
+        feed.maxLines = -3
+        #expect(feed.maxLines == 1)
+        // 丸め後、即座に再トリムされる（次の pushConfirmed を待たない）。
+        let lines = feed.makeLines(translations: [:])
+        #expect(lines.count == 1)
+        #expect(lines.first?.original == "b")
+    }
+
+    @Test("原文が sourceTime の昇順以外で到着しても trim は表示と同じ基準（sourceTime）で古い行を落とす")
+    func trimUsesSourceTimeOrderNotInsertionOrder() {
+        let feed = SubtitleFeed(maxLines: 3)
+        let idOld = UUID()   // 挿入は最初だが sourceTime は最も新しい。
+        let idA = UUID()
+        let idB = UUID()
+        let idC = UUID()
+
+        feed.pushConfirmed(id: idOld, text: "old-but-inserted-first", sourceTime: 100)
+        feed.pushConfirmed(id: idA, text: "a", sourceTime: 1)
+        feed.pushConfirmed(id: idB, text: "b", sourceTime: 2)
+        feed.pushConfirmed(id: idC, text: "c", sourceTime: 3)   // ここで4件目 → 1件トリム。
+
+        let lines = feed.makeLines(translations: [:])
+        // sourceTime で見て最新3件（2, 3, 100）が残るべき。挿入順トリムだと挿入順最古の
+        // idOld（sourceTime=100 で本来は最新）が誤って落とされ、代わりに sourceTime=1
+        // （本来最も古く落とすべき idA）が残ってしまう。
+        #expect(lines.map(\.original) == ["b", "c", "old-but-inserted-first"])
+        #expect(lines.count == 3)
+    }
 }
