@@ -44,7 +44,7 @@
 | 文字起こし | WhisperKit (`argmax-oss-swift`) | v1.0+ |
 | 話者分離 | FluidAudio（推奨）/ SpeakerKit（Pyannote v4 Core ML） | FluidAudio: Apache 2.0 / SpeakerKit: MIT |
 | 声紋 embedding | FluidAudio `extractEmbedding()`（256dim L2 正規化） | - |
-| リアルタイム翻訳（optional） | Apple Translation（既定）/ Gemini Live Translate / Google Cloud Translation v3 / DeepL（BYO key） | macOS 15+ / 各 API |
+| リアルタイム翻訳（optional） | Apple Translation（既定）/ Gemini Live Translate / Google Cloud Translation v3（BYO key） | macOS 15+ / 各 API |
 | データ永続化 | SwiftData（SQLite） | macOS 15+ |
 | UI | SwiftUI | macOS 15+ |
 | 後処理 LLM（optional, 将来） | OpenAI 互換 / Gemini Flash HTTP | - |
@@ -263,8 +263,7 @@ public protocol TranslationProvider: Actor {
 
 **プロバイダ実装方針**:
 - `AppleTranslationProvider`（既定・オンデバイス）: `TranslationSession` は公開 init を持たず `.translationTask` closure 内でのみ有効。**closure 外へ出すと fatal error**。常駐の不可視ホスト View 内 drain ループで処理し、actor 境界を越えるのは値型のみ。
-- `GeminiLiveTranslateClient`（BYO key）: `URLSessionWebSocketTask`。プレビューのため実験的扱い。
-- `DeepLProvider`（BYO key）: REST（キーがシンプルで BYO の現実的第一候補）。
+- `GeminiLiveTranslateClient`（BYO key）: `URLSessionWebSocketTask`。プレビューのため実験的扱い。クラウド BYO はこれが唯一（D-18）。
 - `GoogleCloudTranslationV3Provider`（BYO key）: v3 は OAuth2/サービスアカウント必須（生 API キー不可）→ 着手は後回し。
 
 ---
@@ -347,7 +346,7 @@ public protocol TranslationProvider: Actor {
     // --- プライバシー / 翻訳 ---
     var privacyModeEnabled: Bool = true              // 既定 ON: クラウド送信を遮断
     var translationEnabled: Bool = false             // 翻訳 ON/OFF トグル
-    var translationProvider: String = "auto"         // "auto" | "apple" | "gemini" | "googlev3" | "deepl"
+    var translationProvider: String = "auto"         // "auto" | "apple" | "geminiLive" | "googleCloudV3"（旧 "deepL" は D-18 で撤去済み・読込時は "auto" にフォールバック）
     var translationSourceLanguage: String = "ja"
     var translationTargetLanguage: String = "en"
     // BYO key は SwiftData に置かず KeychainStore で管理（D-17）。ここには保持しない
@@ -502,6 +501,7 @@ let package = Package(
 | D-15 | 翻訳 provider は `prepare()`〜`teardown()` の間だけ生存 | クラウド socket を長命にしない構造的プライバシー担保。privacy/enabled 変化で即 teardown |
 | D-16 | `TranslationSession` は `.translationTask` closure 内に閉じ、常駐ホストの drain ループで処理 | closure 外で使うと fatal error。actor へ越境させるのは値型（id/text）のみ。**長時間 drain ループの成立は実機 PoC で要検証** |
 | D-17 | BYO key は SwiftData ではなく Keychain（`KeychainStore` 単一アクセス点） | 平文保存を避ける。`AppSettingsModel.translationApiKey` は廃止し Keychain へ移行 |
+| D-18 | DeepL（BYO REST 翻訳）不採用（2026-07-14） | 文単位 REST 翻訳 API の組み込みはプロダクト方向性（オンデバイス優先 + LLM ベースのリアルタイム翻訳）に対して時代遅れと判断し完全撤去。クラウド BYO は Gemini Live のみ。初期調査（`docs/realtime-translation-research.md`『除外: DeepL API』）の結論に回帰（設計フェーズでキー取得の簡単さを理由に一度反転していた）。実装は PR #79 で一度マージ後、本タスク（TASK-58）で撤去 |
 | D-2 | 閾値 0.82 を初期値に | VoxCeleb EER 付近だが日本語では要実測調整。AppSettings で変更可 |
 | D-3 | EMA alpha=0.1 | セッションを重ねるほど精緻化。count>10 での alpha 低減を Phase 3 で追加 |
 | D-4 | `[Float]→Data` 保存 | SwiftData は `[Float]` を Attribute 直サポートしない。1024 bytes/プロファイルは合理的 |

@@ -9,7 +9,7 @@
 
 - **システム音声 = Core Audio Taps（ProcessTap）を既定**、SCStream は代替（spec D-1 改訂 / D-9 / D-10）。
 - **データ永続化 = SwiftData を維持**（Core Data へは戻さない / D-4）。
-- **翻訳 = 2 段構え**。既定 Apple Translation（オンデバイス・無料）→ BYO key で Gemini Live Translate / Google Cloud v3 / DeepL に切替（`TranslationProvider` 抽象 / D-12）。詳細設計は `docs/translation-architecture.md`。
+- **翻訳 = 2 段構え**。既定 Apple Translation（オンデバイス・無料）→ BYO key で Gemini Live Translate / Google Cloud v3 に切替（`TranslationProvider` 抽象 / D-12）。DeepL は D-18 で撤去済み。詳細設計は `docs/translation-architecture.md`。
 - **話者分離 = FluidAudio を主候補**。ただし `DiarizationEngine` protocol で**後から差し替え可能な柔軟実装**を維持（D-5 / D-11）。エンジン選定は実測後に変更しうる。
 - **要約・アクション抽出・会議後チャット = 当面スコープ外**（Phase 6・任意）。
 - **増分実装**（既存の protocol/actor/DI 抽象の上に積む。フルスクラッチ書き換えはしない）。
@@ -63,7 +63,7 @@
 | **P25-3** | 翻訳字幕 UI（2 レーン + フローティング） | 録音中に原文/訳文の 2 レーン表示。会議横のフローティングオーバーレイ（`NSPanel`, `sharingType=.none` で画面共有非映り込み） | P25-2, P2-4 |
 | **P25-4** | 翻訳 ON/OFF トグル + プロバイダ/言語選択 | `SettingsView` と録音画面トグル。OFF 時はクラウド送信ゼロ。プライバシーモード時は `isOnDevice==false` を抑止 | P25-1 |
 | **P25-5** | `GeminiLiveTranslateClient`（BYO key・実験的） | `URLSessionWebSocketTask` + `PCMConverter`（Float32→Int16）。字幕は input/outputAudioTranscription から取得。プレビュー扱いの注意表示 | P25-1 |
-| **P25-6** | BYO REST プロバイダ（**DeepL 優先** / Google Cloud v3 は後回し） | DeepL は REST + 単純キーで実装容易（Apple 未対応ペアのフォールバック先）。Google Cloud v3 は OAuth2/サービスアカウントが必要（生 API キー不可）のため後続。参照: `translation-architecture.md` §0-8 | P25-1 |
+| **P25-6** | BYO REST プロバイダ（Google Cloud v3） | Google Cloud v3 は OAuth2/サービスアカウントが必要（生 API キー不可）のため実装優先度は後続。参照: `translation-architecture.md` §0-8。**D-18 で DeepL は撤去済み。クラウド BYO は Gemini Live のみ**（当初 DeepL を「REST + 単純キーで実装容易」として優先していたが、オンデバイス優先 + LLM ベースの方向性へ回帰） | P25-1 |
 | **P25-7** | API キーを Keychain で管理 | `translationApiKey` を AppSettings 平文から Keychain へ移行。参照: Recap `KeychainService` | P25-4 |
 
 ---

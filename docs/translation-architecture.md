@@ -1,8 +1,9 @@
 # sokki リアルタイム翻訳アーキテクチャ設計（2段構え・切替式）
 
-> 目的: Apple Translation（オンデバイス既定）と BYO key クラウド（Gemini Live / Google Cloud v3 / DeepL）を**実行時に切替・自動ルーティング**し、**プライバシーゲートで fail-closed** にする翻訳基盤の設計。
+> 目的: Apple Translation（オンデバイス既定）と BYO key クラウド（Gemini Live / Google Cloud v3）を**実行時に切替・自動ルーティング**し、**プライバシーゲートで fail-closed** にする翻訳基盤の設計。
 > 作成: 2026-06-26 / 3案並列 → 統合 → Swift 6 並行性・Apple API 実在性の**敵対的レビュー**（verdict: minor-issues）。
 > ステータス: **設計確定。ただし Apple Translation 経路は実機 PoC 必須**（§0・§14 参照）。spec §4.6 / D-14〜D-17 と対。
+> **D-18（2026-07-14）により DeepL は撤去済み。以下の DeepL 関連記載は当時の設計検討の履歴として残す（クラウド BYO は Gemini Live のみ）。**
 
 ---
 
@@ -26,7 +27,7 @@
    → **修正**: socket クローズを最優先（`teardown` 冒頭で `await active?.teardown()` を先に）し、自タスクの cancel は最後に。または teardown を `Task.detached` で実行して自己キャンセルの影響を断つ。
 
 4. **missing-key の二重判定**: Router の `unavailableReason="API キー未設定"` と Gate の `.missingApiKey` が同条件を二重に持ち drift しうる。Router は早期 return するため Gate の missingApiKey 経路が実行されないことがある。
-   → 判定を **Gate に一本化**（Router は route だけ返し、key 有無は Gate）。また `hasValidApiKey` は**存在チェックのみ**で、失効/無効キーは検出されない（無効キーで送信が試行され `connectionFailed` で初めて露呈）。キー検証 API（DeepL `/v2/usage` 等）を prepare 時に任意で。
+   → 判定を **Gate に一本化**（Router は route だけ返し、key 有無は Gate）。また `hasValidApiKey` は**存在チェックのみ**で、失効/無効キーは検出されない（無効キーで送信が試行され `connectionFailed` で初めて露呈）。キー検証 API（プロバイダ提供の usage/検証エンドポイント等）を prepare 時に任意で。
 
 5. **prepareOnly の race**: `bridge.setLanguages`（config 変更）直後に `enqueue(.prepareOnly)`+`wake` を送ると、**新しい translationTask closure が起動する前**に wake が消費され、旧 closure に流れる/取りこぼす可能性。
    → config 変更後は新 closure が wake を待ち受けてから enqueue する同期（世代カウンタ or closure 起動通知）を入れる。
@@ -40,7 +41,7 @@
    → **`.unbounded` か `.bufferingOldest`**、または明示キューで取りこぼしを出さない。
 
 8. **Google Cloud Translation v3 の認証が誤り**: 本文 §9.2 は `Authorization: Bearer <APIキー>` だが、v3 (`projects.translateText`) は **OAuth2 アクセストークン / サービスアカウント**が必要（生 API キーは `?key=` の v2 用）。サービスアカウント JSON→署名 JWT→トークン交換が未設計で、このままでは動かない。
-   → BYO の現実解は **DeepL（キーがシンプル）か Gemini** を先に。Google v3 を使うなら OAuth2/SA トークン取得を別途設計。
+   → BYO の現実解は **Gemini（キーがシンプル）** を先に。Google v3 を使うなら OAuth2/SA トークン取得を別途設計（DeepL は D-18 で撤去済み）。
 
 > 総評（verdict: minor-issues）: ルーティング/Gate/Coordinator の骨格と「session を closure 外に出さない」方向性はレビューで**妥当と確認**。リスクは Apple Translation のヘッドレス運用（#1, #2）に集中しており、**最初の実装ステップは Apple 経路の最小 PoC（実機・1ペア翻訳 + DL 同意 UI）**にすべき。Gate/Router は実機なしでユニットテストできるので先行可能。
 
@@ -109,9 +110,8 @@ macOS 15+ / Apple Silicon 実機専用（シミュレータ不可）。
 │ TranslationRouter      │   │ TranslationProvider (protocol: Actor)  │
 │  (actor)               │   │  ├ AppleTranslationProvider (onDevice) │──┐
 │  resolve(ctx)→Decision │   │  ├ GeminiLiveProvider     (cloud, WS)  │  │
-│  AvailabilityCache     │   │  ├ GoogleCloudV3Provider   (cloud,REST)│  │
-└──────────────────────┘   │  └ DeepLProvider           (cloud,REST)│  │
-                            └──────────────────────────────────────┘  │
+│  AvailabilityCache     │   │  └ GoogleCloudV3Provider   (cloud,REST)│  │
+└──────────────────────┘   └──────────────────────────────────────┘  │
                 Apple のみ ▲ ジョブ AsyncStream / 結果 continuation     │
                           │                                            │
               ┌───────────┴───────────────┐                           │
@@ -147,7 +147,6 @@ Sources/SokkiKit/Translation/
 ├── BYO/
 │   ├── GeminiLiveTranslateClient.swift   # WebSocket
 │   ├── GoogleCloudTranslationV3Provider.swift # REST
-│   ├── DeepLProvider.swift            # REST
 │   └── PCMConverter.swift             # （Gemini Live 音声経路を使う場合）
 └── Mocks/
     └── MockTranslationProvider.swift  # ルーティング/ライフサイクルテスト用
@@ -285,7 +284,7 @@ public enum TranslationGate {
 import Translation
 
 public enum TranslationProviderKind: String, Sendable, CaseIterable, Codable {
-    case auto, apple, geminiLive, googleCloudV3, deepL
+    case auto, apple, geminiLive, googleCloudV3
     public var isOnDeviceImplied: Bool { self == .apple }
 }
 
@@ -782,7 +781,7 @@ public actor GoogleCloudV3Provider: TranslationProvider {
 }
 ```
 
-DeepL は同型（`/v2/translate`、言語コードは `"EN","JA"` 形式へのマッピング表を持つ、`/v2/usage` で key 検証）。
+（当初 DeepL も同型の REST provider として検討していたが、D-18 で撤去済み。クラウド BYO は Gemini Live のみ。）
 
 ### 9.3 共通方針
 
@@ -839,7 +838,7 @@ await translation.reconcile(ctx: RoutingContext(
     target: settings.translationTargetLanguage.localeLanguage,
     privacyMode: settings.privacyModeEnabled,
     availableKeys: keychain.availableCloudKinds(),
-    cloudPreferenceOrder: [.geminiLive, .googleCloudV3, .deepL]))
+    cloudPreferenceOrder: [.geminiLive, .googleCloudV3]))
 
 // 既存のセグメント処理（確定分岐）
 if segment.isConfirmed {
@@ -894,7 +893,6 @@ let translationCoordinator = TranslationCoordinator(
         switch kind {
         case .geminiLive:    return GeminiLiveProvider(keychain: keychain)
         case .googleCloudV3: return GoogleCloudV3Provider(keychain: keychain)
-        case .deepL:         return DeepLProvider(keychain: keychain)
         default:             return nil
         }
     })
@@ -957,7 +955,7 @@ let translationCoordinator = TranslationCoordinator(
   - **D-14**: provider は `prepare()`〜`teardown()` の間だけ生存。privacy/enabled 変化で即 teardown。
   - **D-15**: `TranslationSession` は `.translationTask` closure 内に閉じ、常駐ホストの drain ループで処理。actor へ越境させるのは `Request`/`Response` 値型のみ。
   - **D-16**: BYO key は SwiftData ではなく Keychain（`KeychainStore` 単一アクセス点）。`AppSettingsModel.translationApiKey` を廃止。
-- Phase2 Issue 候補（依存順）: (a) protocol + Gate + Router + AvailabilityCache + Mock + ユニットテスト → (b) AppleTranslationHost + Provider（実機 DL 検証含む）→ (c) Coordinator + Pipeline 結線 + 2レーン UI → (d) BYO 3種（Google v3 が最軽量 → Gemini Live → DeepL、(a) 完了後に並行可）。
+- Phase2 Issue 候補（依存順）: (a) protocol + Gate + Router + AvailabilityCache + Mock + ユニットテスト → (b) AppleTranslationHost + Provider（実機 DL 検証含む）→ (c) Coordinator + Pipeline 結線 + 2レーン UI → (d) BYO（Google v3 が最軽量 → Gemini Live、(a) 完了後に並行可。DeepL は D-18 で撤去済み）。
 
 ---
 
