@@ -320,7 +320,7 @@ UI デザインは `claude.ai/design` で先行作成し、Claude Code ハンド
 - [ ] 話者分離の日本語 DER 実測（参考: Pyannote OSS community-1=28.8% / Sortformer v2=12.7% / DiariZen=15.6%、arXiv 2509.26177）
 - [ ] SpeakerKit v1.0 で embedding 取り出し API が公開されているかの確認（未公開なら FluidAudio `extractEmbedding()` を採用）
 - [ ] リアルタイム文字起こし時のバッファリング戦略（チャンクサイズ）
-- [ ] 声紋照合閾値の日本語音声での最適値（暫定 0.82、実測後調整）
+- [ ] 声紋照合閾値の日本語音声での最適値（暫定 0.82、実測後調整）— 検証手順整備済み・実測待ち（TASK-27）。`AppSettingsModel.embeddingMatchThreshold` を `SpeakerProfileStore` に配線済み・SettingsView に調整 UI（0.5〜0.95）あり。診断ログは2種類ある: (1) `EmbeddingSimilarityReport`（`Sources/SokkiKit/Diagnostics/`）は今回の録音1回分の diarization クラスタリング安定性（話者内/話者間の生 embedding 類似度分布）を診断するもので、録音間の再現性は測らない。(2) `SpeakerProfileStore` の `[TASK-27 実照合]` ログ（category "diagnostics"）は `resolveProfiles` が実際に使う「今回の集約 embedding vs 過去プロファイルの EMA embedding」の実スコアと閾値判定結果（マッチ／新規作成）をそのまま出力するため、複数回録音して同一人物が正しく既存プロファイルに再認識されるかはこちらで確認する。実音声で両ログを確認し閾値を決定するのはユーザー実測待ち
 - [ ] リアルタイム翻訳プロバイダの選定実証（Apple Translation の 19 言語で要件を満たすか / Gemini Live Translate のプレビュー安定性・コスト許容範囲）
 - [ ] Core Audio Taps（ProcessTap）と SCStream のどちらを既定にするか（entitlement・権限フローの比較）
 

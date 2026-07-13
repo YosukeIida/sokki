@@ -63,6 +63,18 @@ actor SessionManager {
         return settings.diarizationEnabled
     }
 
+    /// 設定モデルの声紋照合閾値。未保存の場合は既定値（0.82）とみなす（TASK-27）。
+    /// 永続化された値が非有限（NaN/infinite）または想定範囲（SettingsView のスライダー範囲 0.5〜0.95）
+    /// 外の場合は、破損データや将来のマイグレーション不備によって声紋照合が全件不一致・全件一致に
+    /// 陥らないよう、既定値へのフォールバック／範囲へのクランプを行う（レビュー指摘）。
+    func embeddingMatchThreshold() -> Float {
+        let descriptor = FetchDescriptor<AppSettingsModel>()
+        guard let settings = try? modelContext.fetch(descriptor).first else { return 0.82 }
+        let raw = settings.embeddingMatchThreshold
+        guard raw.isFinite else { return 0.82 }
+        return min(max(raw, 0.5), 0.95)
+    }
+
     /// セグメントとの時間の重なり（話者ごとの合計）が最大になる diarization 話者ラベルを返す。
     /// 重なりが無ければ nil。同一話者が複数区間に分かれていても合計で評価する
     /// （単一区間の最大値だと、細切れに長く話した話者より一区間だけ長い別話者を誤選択する）。
