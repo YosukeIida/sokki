@@ -117,7 +117,13 @@ final class TranscriptionPipeline {
             switch mode {
             case .micOnly:    source = await captureManager.micStream
             case .systemOnly: source = await captureManager.systemStream
-            case .both:       source = await captureManager.micStream  // TODO: Phase 2 でストリームマージ
+            case .both:
+                // Both モード（TASK-12）: mic / system の 2 ストリームを到着順にインターリーブして
+                // 1 本化し、単一の文字起こしストリームへ供給する（MVP）。レーン分離の高度化は
+                // Phase 3 のマージ（TASK-26）に委ねる。
+                let mic = await captureManager.micStream
+                let system = await captureManager.systemStream
+                source = mergeAudioStreams(mic, system)
             }
 
             let transcriptStream = await transcriptionEngine.transcribeStream(audioChunks: source)

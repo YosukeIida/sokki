@@ -23,8 +23,6 @@ actor AudioCaptureManager {
         case audioEngineStartFailed(Error)
         /// システム音声キャプチャ（Core Audio Taps）の生成に失敗。基底の OSStatus を保持する。
         case systemAudioCaptureFailed(SystemAudioTapError)
-        /// マイク＋システムの同時録音は TASK-12（Phase 2 デュアル録音）で対応予定。
-        case dualCaptureNotSupported
     }
 
     private var micContinuation:      AsyncStream<AudioChunk>.Continuation?
@@ -37,10 +35,12 @@ actor AudioCaptureManager {
     private(set) var micLevelStream: AsyncStream<Float>
     private(set) var systemLevelStream: AsyncStream<Float>
 
-    private var audioEngine: AVAudioEngine?
-    private var fileWriter: AudioFileWriter?
-    private let targetSampleRate: Double = AudioSampleConversion.targetSampleRate
+    /// レーンごとの録音ファイルライター（2 ファイル別保存・TASK-12）。
+    private var micFileWriter: AudioFileWriter?
+    private var systemFileWriter: AudioFileWriter?
 
+    /// マイク音声キャプチャ（AVAudioEngine）。テストではモックを注入する。
+    private let microphone: MicrophoneCapturing
     /// システム音声キャプチャ（Core Audio Taps）。テストではモックを注入する。
     private let systemTap: SystemAudioTapping
 
@@ -54,8 +54,12 @@ actor AudioCaptureManager {
     /// 音声認識自体は継続するため録音は止めないが、呼び出し元が利用者へ通知できるよう保持する（P1）。
     private(set) var recordingSaveError: Error?
 
-    init(systemTap: SystemAudioTapping = SystemAudioTap()) {
+    init(
+        systemTap: SystemAudioTapping = SystemAudioTap(),
+        microphone: MicrophoneCapturing = MicrophoneCapture()
+    ) {
         self.systemTap = systemTap
+        self.microphone = microphone
 
         var micCont:    AsyncStream<AudioChunk>.Continuation!
         var sysCont:    AsyncStream<AudioChunk>.Continuation!
@@ -78,12 +82,11 @@ actor AudioCaptureManager {
         resetStreams()
         switch mode {
         case .micOnly:
-            try await startMicCapture(outputURL: outputURL)
+            try startMicCapture(outputURL: outputURL)
         case .systemOnly:
-            try startSystemCapture()
+            try startSystemCapture(outputURL: outputURL)
         case .both:
-            // マイク＋システムの同時録音は TASK-12 で実装する。
-            throw CaptureError.dualCaptureNotSupported
+            try startBothCapture(primaryURL: outputURL)
         }
     }
 
@@ -109,73 +112,91 @@ actor AudioCaptureManager {
     }
 
     func stopCapture() async {
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine = nil
-        // システム音声タップを解放する（未起動なら冪等な no-op）。
+        // 停止は起動の逆順: mic を先に、system を後に止める（TASK-12 受け入れ基準 #1）。
+        microphone.stop()
         systemTap.stop()
+
         // 書き込み中に発生したエラー（容量不足など）があれば記録する
-        if let writeError = fileWriter?.lastWriteError {
+        if let writeError = micFileWriter?.lastWriteError {
             recordingSaveError = writeError
         }
-        // tap 停止後にファイルを閉じる（書き込み中の競合は AudioFileWriter のロックで防ぐ）
-        fileWriter?.close()
-        fileWriter = nil
+        if let writeError = systemFileWriter?.lastWriteError {
+            recordingSaveError = writeError
+        }
+        // tap / engine 停止後にファイルを閉じる（書き込み中の競合は AudioFileWriter のロックで防ぐ）
+        micFileWriter?.close()
+        micFileWriter = nil
+        systemFileWriter?.close()
+        systemFileWriter = nil
+
         // ストリームを閉じる → transcribeStream の for-await ループが終了し、フラッシュが走る
         micContinuation?.finish()
         micContinuation = nil
+        micLevelContinuation?.finish()
+        micLevelContinuation = nil
         systemContinuation?.finish()
         systemContinuation = nil
         systemLevelContinuation?.finish()
         systemLevelContinuation = nil
     }
 
+    // MARK: - Both（マイク + システム同時 / TASK-12）
+
+    /// マイクとシステム音声を同時にキャプチャする。
+    ///
+    /// 起動順は **system（tap）先 → mic 後**（受け入れ基準 #1）。system 起動後に mic が失敗した場合は、
+    /// 起動済みの system を確実に停止して巻き戻す。ファイルは **primary（mic）と `_system` 派生（system）の
+    /// 2 ファイルに別保存**する（受け入れ基準 #2）。既存の再生／エクスポート動線は primary（mic）を読むため、
+    /// primary を mic レーンに割り当ててモデル変更を避ける。
+    private func startBothCapture(primaryURL: URL?) throws {
+        let systemURL = primaryURL.map { Self.systemFileURL(forPrimary: $0) }
+
+        // 1. system を先に起動する。
+        try startSystemCapture(outputURL: systemURL)
+
+        // 2. mic を後に起動する。失敗したら起動済みの system を巻き戻す。
+        do {
+            try startMicCapture(outputURL: primaryURL)
+        } catch {
+            systemTap.stop()
+            systemFileWriter?.close()
+            systemFileWriter = nil
+            micFileWriter?.close()
+            micFileWriter = nil
+            throw error
+        }
+    }
+
+    /// primary（mic）ファイル URL から system レーンの派生 URL を作る純粋関数（テスト対象）。
+    /// 拡張子の直前に `_system` を挿入する（`foo.m4a` → `foo_system.m4a`）。
+    static func systemFileURL(forPrimary url: URL) -> URL {
+        let ext = url.pathExtension
+        let base = url.deletingPathExtension().lastPathComponent
+        let directory = url.deletingLastPathComponent()
+        let name = ext.isEmpty ? "\(base)_system" : "\(base)_system.\(ext)"
+        return directory.appendingPathComponent(name)
+    }
+
     // MARK: - Microphone (Phase 1)
 
-    private func startMicCapture(outputURL: URL?) async throws {
-        let engine = AVAudioEngine()
-        let inputNode = engine.inputNode
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-
-        // ネイティブフォーマットでタップし、16kHz Float32 に変換
-        let targetFormat = AudioSampleConversion.makeTargetFormat()
-
-        guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
-            return
-        }
-
-        // 出力先が指定されていれば録音ファイルを開く（P1-1）。初期化に失敗しても音声認識は
-        // 継続するが、エラーは recordingSaveError に記録し呼び出し元が利用者へ通知できるようにする。
-        if let outputURL {
-            do {
-                self.fileWriter = try AudioFileWriter(url: outputURL, processingFormat: targetFormat)
-            } catch {
-                self.fileWriter = nil
-                self.recordingSaveError = error
-            }
-        }
-        let writer = self.fileWriter
+    private func startMicCapture(outputURL: URL?) throws {
+        let writer = openWriter(at: outputURL)
+        self.micFileWriter = writer
         let generation = captureGeneration
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-            guard let self else { return }
-            guard let outBuffer = AudioSampleConversion.convertToBuffer(
-                buffer, using: converter, to: targetFormat
-            ) else { return }
-            // 音声スレッドで同期書き込み（順序保証）。
-            writer?.write(outBuffer)
-            let converted = AudioSampleConversion.samples(from: outBuffer)
-            let capturedAt = Date()
-            Task {
-                await self.dispatchMic(samples: converted, capturedAt: capturedAt, generation: generation)
-            }
-        }
-
-        self.audioEngine = engine
-        engine.prepare()
         do {
-            try engine.start()
+            try microphone.start { [weak self, writer] samples, capturedAt in
+                // 音声スレッドで同期書き込み（順序保証）。
+                if let writer, let buffer = AudioSampleConversion.makeBuffer(from: samples) {
+                    writer.write(buffer)
+                }
+                Task { [weak self] in
+                    await self?.dispatchMic(samples: samples, capturedAt: capturedAt, generation: generation)
+                }
+            }
         } catch {
+            self.micFileWriter?.close()
+            self.micFileWriter = nil
             throw CaptureError.audioEngineStartFailed(error)
         }
     }
@@ -193,17 +214,24 @@ actor AudioCaptureManager {
     /// システム音声キャプチャを開始し、systemStream / systemLevelStream に流す。
     ///
     /// IO クロージャは専用 IO キュー上で呼ばれ、変換済み `[Float]` のみをアクター境界へ渡す。
-    /// systemOnly 録音のファイル書き出しは TASK-12（デュアル録音・録音ファイル管理）に委ねるため、
-    /// ここでは AudioFileWriter を開かない。
-    private func startSystemCapture() throws {
+    /// `outputURL` が指定されていれば同期的にファイルへ書き出す（2 ファイル別保存・TASK-12）。
+    private func startSystemCapture(outputURL: URL?) throws {
+        let writer = openWriter(at: outputURL)
+        self.systemFileWriter = writer
         let generation = captureGeneration
         do {
-            try systemTap.start { [weak self] samples, capturedAt in
+            try systemTap.start { [weak self, writer] samples, capturedAt in
+                // IO キュー上で同期書き込み（順序保証）。
+                if let writer, let buffer = AudioSampleConversion.makeBuffer(from: samples) {
+                    writer.write(buffer)
+                }
                 Task { [weak self] in
                     await self?.dispatchSystem(samples: samples, capturedAt: capturedAt, generation: generation)
                 }
             }
         } catch let error as SystemAudioTapError {
+            self.systemFileWriter?.close()
+            self.systemFileWriter = nil
             throw CaptureError.systemAudioCaptureFailed(error)
         }
     }
@@ -214,5 +242,22 @@ actor AudioCaptureManager {
         let chunk = AudioChunk(lane: .system, samples: samples, capturedAt: capturedAt)
         systemContinuation?.yield(chunk)
         systemLevelContinuation?.yield(AudioSampleConversion.rmsLevel(samples))
+    }
+
+    // MARK: - File writer
+
+    /// 録音ファイルライターを開く。初期化に失敗しても音声認識は継続するため、エラーは
+    /// `recordingSaveError` に記録し呼び出し元が利用者へ通知できるようにする（P1）。
+    private func openWriter(at url: URL?) -> AudioFileWriter? {
+        guard let url else { return nil }
+        do {
+            return try AudioFileWriter(
+                url: url,
+                processingFormat: AudioSampleConversion.makeTargetFormat()
+            )
+        } catch {
+            recordingSaveError = error
+            return nil
+        }
     }
 }
