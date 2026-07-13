@@ -5,10 +5,14 @@ actor SpeakerProfileStore {
 
     private let modelContext: ModelContext
     private var matcher: EmbeddingMatcher
+    private let locale: Locale
 
-    init(modelContext: ModelContext, matchThreshold: Float = 0.82) {
+    /// - Parameter locale: 自動命名（`SpeakerLabel`）の判定に用いるロケール。既定は `.current`。
+    ///   テストでは ja/en を明示注入してグローバル状態に依存しない検証を行う。
+    init(modelContext: ModelContext, matchThreshold: Float = 0.82, locale: Locale = .current) {
         self.modelContext = modelContext
         self.matcher = EmbeddingMatcher(threshold: matchThreshold)
+        self.locale = locale
     }
 
     func updateThreshold(_ threshold: Float) {
@@ -75,7 +79,7 @@ actor SpeakerProfileStore {
 
         let count = existing.count
         let profile = SpeakerProfileModel(
-            displayName: "話者 \(count + 1)",
+            displayName: SpeakerLabel.displayName(index: count, locale: locale),
             embedding: embedding
         )
         modelContext.insert(profile)
