@@ -35,16 +35,19 @@ DER = (missed + falseAlarm + confusion) / total
 - **話者ラベルの最適マッピング**: リファレンス話者と仮説話者の対応は未知なので、共起時間を最大化する
   一対一マッチングを求める（話者数が少ないので全順列を厳密に評価。詳細は `DERCalculator.swift`）。
   これにより「仮説のラベルが `S1/S2`、正解が `話者A/話者B`」でも正しく対応付く。
-- **collar**: `collar > 0` のとき各リファレンス境界の周囲 ±collar をスコア対象外にする。
-  CALLHOME 系の「collar 0.25s」= 片側 0.25s の慣習に一致。境界付近のアノテーション誤差を許容できる。
+- **collar**: `collar > 0` のとき各リファレンス境界の周囲 ±collar（片側半径）をスコア対象外にする。
+  境界付近のアノテーション誤差を許容するための仕組みで、CALLHOME 系の評価でよく使われる
+  「collar 0.25s」という表記も片側半径として運用されることが多い。
+  > **注意**: ただし collar の数値規約（片側半径か全体幅か）はツール・論文によって流儀が分かれる。
+  > `SOKKI_DER_COLLAR` は本実装では常に**片側**の半径（秒）を指す。他ツール（pyannote.metrics の
+  > `DiarizationErrorRate(collar=...)` 等）の出力と数値を直接突き合わせる場合は、必ずそのツールの
+  > ドキュメントで collar 引数の定義を確認すること。同じ数値を渡しても除外幅が異なりうる。
   参考値と厳密に揃えるなら、参照した論文の collar 設定に合わせること（DIHARD は collar 0）。
-  > **注意**: `SOKKI_DER_COLLAR` は境界**片側**の半径（秒）を指定する。他ツール（pyannote.metrics の
-  > `DiarizationErrorRate(collar=...)` 等）は実装によって「片側」「全体幅」のどちらを指すか流儀が
-  > 分かれるため、他ツールの出力と数値を突き合わせる際は必ずそのツールのドキュメントで collar
-  > 引数の定義（片側か全体幅か）を確認すること。同じ数値を渡しても除外幅が 2 倍違う場合がある。
 
-これは NIST md-eval / pyannote.metrics の `DiarizationErrorRate` と同じ定義。したがって
-Sortformer / Pyannote の公表値と**同じ土俵**で比較できる（ただし collar と評価コーパスは揃える必要がある。下記 6 節）。
+DER の計算式自体（missed + falseAlarm + confusion を最適マッピング下で集計し、総リファレンス発話時間で
+正規化する）は NIST md-eval / pyannote.metrics の `DiarizationErrorRate` と同じ定義で実装している。
+したがって Sortformer / Pyannote の公表値とおおむね同じ土俵で比較できるが、**collar の数値規約と
+評価コーパス（テストデータの質・話者数・言語）が異なれば数値は単純比較できない**点に注意（下記 6 節）。
 
 ---
 

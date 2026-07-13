@@ -161,11 +161,11 @@ struct DERCalculatorTests {
     }
 
     @Test("最適マッピングは共起最大の割当を選ぶ（話者数が少ないので常に全順列＝最適解を使う経路）")
-    func optimalMappingBeatsGreedy() {
-        // 貪欲が最初に最大共起ペアを取ると全体最適を外す配置。
+    func optimalMappingChoosesGlobalOptimum() {
+        // 話者数が 2 なので必ず全順列（exactBestMatching）経路を通る。
+        // 貪欲との差自体は `greedyMatchingIsNotAlwaysOptimal` で別途検証済み。
+        // ここでは「共起最大化による対応付けが一意に決まり、DER 計算に正しく反映される」ことを確認する。
         // ref A[0,10), B[10,30)。hyp s1[0,10)+[10,18)（Aと10, Bと8 共起）, s2[18,30)（Bと12 共起）。
-        // 貪欲: 最大共起は s1-B(=8)? いや s1-A=10 が最大。s1->A 確定 → s2->B。
-        // ここではむしろ「全体最適が一意に決まる」ことと DER を確認する。
         let ref = [iv(0, 10, "A"), iv(10, 30, "B")]
         let hyp = [iv(0, 18, "s1"), iv(18, 30, "s2")]
         let r = DERCalculator.computeDER(reference: ref, hypothesis: hyp)
