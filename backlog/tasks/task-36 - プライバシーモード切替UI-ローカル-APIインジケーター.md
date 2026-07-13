@@ -1,10 +1,10 @@
 ---
 id: TASK-36
 title: プライバシーモード切替UI + ローカル/APIインジケーター
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-11 16:37'
-updated_date: '2026-07-11 16:38'
+updated_date: '2026-07-12 23:56'
 labels:
   - Phase5
 milestone: m-5
@@ -27,3 +27,13 @@ ordinal: 36000
 - [ ] #2 録音画面にローカル/APIの状態が明示されること
 - [ ] #3 isOnDevice==falseのプロバイダの抑止と連動すること
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: claude
+created: 2026-07-12 23:56
+---
+実装完了・PR #94 マージ可能判定（sonnet・Fable レビュー・マージ順 #70→#93→#94）。ProcessingModeIndicator 純粋関数 + isCloudActive 連動バッジ、91テスト。AC1/AC3 は TASK-17/20 で充足済みを確認。マージ後: Done 化 + Issue #55 クローズ。
+---
+<!-- COMMENTS:END -->
