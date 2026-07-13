@@ -82,6 +82,20 @@ actor SessionManager {
         return settings.diarizationEnabled
     }
 
+    /// 設定モデルの声紋照合閾値。未保存の場合は既定値（0.82）とみなす（TASK-27）。
+    /// 永続化された値が非有限（NaN/infinite）または想定範囲（SettingsView のスライダー範囲 0.5〜0.95）
+    /// 外の場合は、破損データや将来のマイグレーション不備によって声紋照合が全件不一致・全件一致に
+    /// 陥らないよう、既定値へのフォールバック／範囲へのクランプを行う（レビュー指摘）。
+    /// なお旧 bestOverlapSpeaker（単一 actor 内ヘルパー）は SpeakerAlignment.assign
+    /// （WhisperX 方式・話者ごとの交差合計）に置き換えられたため削除済み。
+    func embeddingMatchThreshold() -> Float {
+        let descriptor = FetchDescriptor<AppSettingsModel>()
+        guard let settings = try? modelContext.fetch(descriptor).first else { return 0.82 }
+        let raw = settings.embeddingMatchThreshold
+        guard raw.isFinite else { return 0.82 }
+        return min(max(raw, 0.5), 0.95)
+    }
+
     func updateDuration(sessionID: PersistentIdentifier, duration: Double) throws {
         guard let session = modelContext.model(for: sessionID) as? SessionModel else { return }
         session.durationSeconds = duration
@@ -123,6 +137,12 @@ actor SessionManager {
         guard let session = try modelContext.fetch(descriptor).first else { return }
         if let audioFileURL = session.audioFileURL {
             try? FileManager.default.removeItem(at: audioFileURL)
+            // Both モード（TASK-12）は system レーンを `_system` 派生ファイルに別保存するため、
+            // 主ファイルと合わせて削除する（孤児ファイルを残さない）。
+            if session.captureMode == AudioCaptureManager.CaptureMode.both.rawValue {
+                let systemURL = AudioCaptureManager.systemFileURL(forPrimary: audioFileURL)
+                try? FileManager.default.removeItem(at: systemURL)
+            }
         }
         modelContext.delete(session)
         try modelContext.save()

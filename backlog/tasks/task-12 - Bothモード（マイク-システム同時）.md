@@ -1,10 +1,10 @@
 ---
 id: TASK-12
 title: Bothモード（マイク + システム同時）
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-11 16:35'
-updated_date: '2026-07-11 16:38'
+updated_date: '2026-07-12 22:58'
 labels:
   - Phase2
 milestone: m-1
@@ -27,3 +27,13 @@ ordinal: 12000
 - [ ] #1 起動順system先→mic後、停止は逆順で実装されていること
 - [ ] #2 micとsystemの音声が2ファイルに別々保存されること
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: claude
+created: 2026-07-12 22:58
+---
+実装完了・PR #81 マージ可能判定（opus 実装・codex クロスレビュー + 修正・マージ順 #69→#76→#81）。system→mic 起動順/逆順停止/巻き戻し、2ファイル分離保存（primary=mic, _system 派生）、削除の SessionManager 一元化、86テスト。実機検証（ユーザー）: 2系統同時録音・oth 文字起こし・削除時の一覧更新。マージ後: Done 化 + Issue #31 クローズ + TASK-13 解放。
+---
+<!-- COMMENTS:END -->

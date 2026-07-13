@@ -1,10 +1,10 @@
 ---
 id: TASK-25
 title: 'embedding取得→SpeakerProfileStore配線（embedding: nil解消）'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-11 16:36'
-updated_date: '2026-07-11 16:38'
+updated_date: '2026-07-12 22:10'
 labels:
   - Phase3
 milestone: m-3
