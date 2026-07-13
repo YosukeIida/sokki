@@ -7,7 +7,7 @@ public final class AppDependencyContainer {
     let modelContainer: ModelContainer
     let captureManager: AudioCaptureManager
     let transcriptionEngine: any TranscriptionEngine
-    let diarizationEngine: SpeakerKitEngine
+    let diarizationEngine: any DiarizationEngine
     let speakerProfileStore: SpeakerProfileStore
     let sessionManager: SessionManager
     var pipeline: TranscriptionPipeline
@@ -23,7 +23,7 @@ public final class AppDependencyContainer {
         let engineChoice = (try? ctx.fetch(FetchDescriptor<AppSettingsModel>()))?
             .first?.transcriptionEngine ?? "whisperkit"
         transcriptionEngine = Self.makeTranscriptionEngine(engineChoice: engineChoice)
-        diarizationEngine = SpeakerKitEngine()
+        diarizationEngine = FluidAudioEngine()
         speakerProfileStore = SpeakerProfileStore(modelContext: ctx)
         sessionManager = SessionManager(modelContainer: modelContainer)
         meetingDetector = MeetingDetector()
