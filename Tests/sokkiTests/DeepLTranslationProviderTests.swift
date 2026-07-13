@@ -152,6 +152,26 @@ struct DeepLTranslationProviderTests {
         #expect(requests.count == 2)   // 1回だけリトライして打ち切り
     }
 
+    // MARK: - 456 → quota exceeded（connectionFailed に混ぜない）
+
+    @Test("translateStream: 456 は quota exceeded として providerError へ写像される（connectionFailed ではない）")
+    func quotaExceededMapsToProviderError() async throws {
+        let script = ScriptedDeepLTransport([.status(456)])
+        let provider = makeProvider(transport: script.transport)
+        try await provider.prepare(source: ja, target: en)
+
+        let (inputs, cont) = AsyncStream<TranslationInput>.makeStream()
+        cont.yield(TranslationInput(id: UUID(), text: "上限", sourceTime: 0))
+        cont.finish()
+
+        await #expect(throws: TranslationProviderError.providerError("DeepL quota exceeded (HTTP 456)")) {
+            for try await _ in await provider.translateStream(inputs) {}
+        }
+        // 456 はリトライ対象外（1回のみ発行）。
+        let requests = await script.recordedRequests
+        #expect(requests.count == 1)
+    }
+
     // MARK: - teardown / 消費側キャンセルで in-flight リクエストがキャンセルされる
 
     @Test("translateStream: 出力側の消費キャンセルが進行中リクエストへ伝播する")

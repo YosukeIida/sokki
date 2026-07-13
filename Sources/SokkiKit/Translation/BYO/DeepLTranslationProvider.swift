@@ -139,6 +139,11 @@ public actor DeepLTranslationProvider: TranslationProvider {
             try await sleeper(Self.retryDelay(from: http, default: retryDelay))
             return try await performRequest(
                 text: text, key: key, source: source, target: target, allowRetry: false)
+        case 456:
+            // DeepL 固有: Free の月間文字数上限 or Pro の Cost Control 上限到達（quota exceeded）。
+            // 通信失敗ではないため `.connectionFailed` に寄せず、リトライしても解消しない
+            // エラーとして区別できるよう `.providerError` に写像する（キー文字列は含めない）。
+            throw TranslationProviderError.providerError("DeepL quota exceeded (HTTP 456)")
         default:
             throw TranslationProviderError.connectionFailed("DeepL HTTP \(http.statusCode)")
         }
