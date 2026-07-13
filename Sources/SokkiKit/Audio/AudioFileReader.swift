@@ -67,12 +67,22 @@ enum AudioFileReader {
             }
             collected.append(contentsOf: samples(from: outBuffer))
             switch status {
-            case .haveData:
-                // 出力バッファ容量に収まりきらなかった場合は続けて排出する。
-                // 進捗が無いまま haveData が続くことは無いが、保険として空出力なら打ち切る。
+            case .haveData, .inputRanDry:
+                // haveData: 出力バッファ容量に収まりきらなかった場合は続けて排出する。
+                // inputRanDry: 入力ブロックは noDataNow を返さないため通常到達しないが、
+                // 到達しても endOfStream まで継続して末尾 flush を確実にする。
+                // いずれも進捗（出力）が無ければ打ち切る（無限ループ防止の保険）。
                 if outBuffer.frameLength == 0 { return collected }
-            case .endOfStream, .inputRanDry, .error:
+            case .endOfStream:
                 return collected
+            case .error:
+                // NSError が nil のまま .error が返った場合。途中までのサンプルを返すと
+                // 欠落した音声で diarize してしまうため throw する（上流は graceful degradation）。
+                throw AudioFileReaderError.conversionFailed(underlying: NSError(
+                    domain: "com.sokki.AudioFileReader",
+                    code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "AVAudioConverter returned .error without NSError"]
+                ))
             @unknown default:
                 return collected
             }
