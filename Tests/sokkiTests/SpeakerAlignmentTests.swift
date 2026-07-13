@@ -139,4 +139,104 @@ struct SpeakerAlignmentTests {
         )
         #expect(assignment.isEmpty)
     }
+
+    // MARK: - fillNearest（端点ギャップ・WhisperX との差異）
+
+    @Test("fillNearest は端点ギャップ距離を使う（WhisperX の中点距離とは異なる派生仕様）")
+    func fillNearestUsesEndpointGapNotMidpoint() {
+        // 文字起こし [10,11]: A [0,9] の端点ギャップ 1.0、B [12,13] の端点ギャップ 1.0 → 同値。
+        // 開始時刻が早い A を選ぶ。WhisperX は中点距離（A:|10.5-4.5|=6.0, B:|10.5-12.5|=2.0）で
+        // B を選ぶため、両者の挙動は異なる（回帰固定）。
+        let diarization = [dia("A", 0, 9), dia("B", 12, 13)]
+        let assignment = SpeakerAlignment.assign(
+            transcriptionIntervals: [interval(10, 11)],
+            diarizationSegments: diarization,
+            unmatchedPolicy: .fillNearest
+        )
+        #expect(assignment == [0: "A"])
+    }
+
+    // MARK: - 数値決定性（加算順非依存）
+
+    @Test("交差合計が同値のとき加算順に依存せず最早開始の話者が選ばれる")
+    func summedOverlapTieIsOrderIndependent() {
+        // 文字起こし [0,10]:
+        //   A: [2,4]+[6,8] = 2.0+2.0 = 4.0（最早開始 2）
+        //   B: [0,2]+[8,10] = 2.0+2.0 = 4.0（最早開始 0）
+        // 合計同値 → 最早開始が小さい B。diarization の並び順が変わっても同一結果になること。
+        let forward = SpeakerAlignment.assign(
+            transcriptionIntervals: [interval(0, 10)],
+            diarizationSegments: [dia("A", 2, 4), dia("A", 6, 8), dia("B", 0, 2), dia("B", 8, 10)]
+        )
+        let reversed = SpeakerAlignment.assign(
+            transcriptionIntervals: [interval(0, 10)],
+            diarizationSegments: [dia("B", 8, 10), dia("B", 0, 2), dia("A", 6, 8), dia("A", 2, 4)]
+        )
+        #expect(forward == [0: "B"])
+        #expect(reversed == [0: "B"])
+    }
+
+    // MARK: - 無効区間
+
+    @Test("逆転した文字起こし区間（start > end）は未割当")
+    func reversedTranscriptionIntervalIsUnassigned() {
+        let assignment = SpeakerAlignment.assign(
+            transcriptionIntervals: [interval(10, 5)],
+            diarizationSegments: [dia("S1", 0, 20)]
+        )
+        #expect(assignment.isEmpty)
+    }
+
+    @Test("逆転・非有限の diarization 区間は無視され、有効区間のみで割り当てる")
+    func invalidDiarizationSegmentsAreIgnored() {
+        let diarization = [
+            dia("Sbad", 8, 2),        // 逆転 → 無視
+            dia("Snan", .nan, 5),     // NaN → 無視
+            dia("S1", 0, 10),         // 有効
+        ]
+        let assignment = SpeakerAlignment.assign(
+            transcriptionIntervals: [interval(1, 4)],
+            diarizationSegments: diarization
+        )
+        #expect(assignment == [0: "S1"])
+    }
+
+    @Test("全ての diarization 区間が無効なら fillNearest でも空の結果を返す")
+    func allInvalidDiarizationYieldsEmpty() {
+        let assignment = SpeakerAlignment.assign(
+            transcriptionIntervals: [interval(0, 10)],
+            diarizationSegments: [dia("Sbad", 5, 1), dia("Sinf", 0, .infinity)],
+            unmatchedPolicy: .fillNearest
+        )
+        #expect(assignment.isEmpty)
+    }
+
+    // MARK: - 接触・ゼロ幅
+
+    @Test("端点接触のみ（交差ゼロ）は未割当")
+    func touchingOnlyIsUnassigned() {
+        // 文字起こし [10,20] と diarization [0,10] は境界 10 で接触するのみ（交差 0）。
+        let assignment = SpeakerAlignment.assign(
+            transcriptionIntervals: [interval(10, 20)],
+            diarizationSegments: [dia("S1", 0, 10)]
+        )
+        #expect(assignment.isEmpty)
+    }
+
+    @Test("ゼロ幅の文字起こし区間は交差ゼロで未割当・fillNearest ではギャップ0で最近傍")
+    func zeroWidthTranscriptionInterval() {
+        // ゼロ幅 [5,5] は内包する話者があっても交差 0。
+        let unassigned = SpeakerAlignment.assign(
+            transcriptionIntervals: [interval(5, 5)],
+            diarizationSegments: [dia("S1", 0, 10)]
+        )
+        #expect(unassigned.isEmpty)
+
+        let filled = SpeakerAlignment.assign(
+            transcriptionIntervals: [interval(5, 5)],
+            diarizationSegments: [dia("S1", 0, 10)],
+            unmatchedPolicy: .fillNearest
+        )
+        #expect(filled == [0: "S1"]) // 内包のためギャップ 0 → 最近傍
+    }
 }

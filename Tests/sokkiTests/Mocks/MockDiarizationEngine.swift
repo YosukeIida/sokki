@@ -48,3 +48,17 @@ func makeNormalizedEmbedding(seed: Float, dimension: Int = 256) -> [Float] {
     let raw = (0..<dimension).map { i in sin(seed + Float(i) * 0.01) }
     return l2Normalize(raw)
 }
+
+/// コサイン類似度を厳密に指定できる単位ベクトルのペアを生成するテストヘルパー。
+/// 直交する2基底ベクトル（次元 0 / 1）を混合することで、
+/// `cosineSimilarity(a, b) == cosineSimilarity` を厳密に満たすペアを作る（TASK-27の閾値検証テスト用）。
+func makeEmbeddingPair(cosineSimilarity: Float, dimension: Int = 256) -> (a: [Float], b: [Float]) {
+    var a = [Float](repeating: 0, count: dimension)
+    a[0] = 1.0
+
+    var b = [Float](repeating: 0, count: dimension)
+    b[0] = cosineSimilarity
+    b[1] = sqrt(max(0, 1 - cosineSimilarity * cosineSimilarity))
+
+    return (a, b)
+}
