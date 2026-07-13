@@ -263,8 +263,8 @@ public protocol TranslationProvider: Actor {
 
 **プロバイダ実装方針**:
 - `AppleTranslationProvider`（既定・オンデバイス）: `TranslationSession` は公開 init を持たず `.translationTask` closure 内でのみ有効。**closure 外へ出すと fatal error**。常駐の不可視ホスト View 内 drain ループで処理し、actor 境界を越えるのは値型のみ。
-- `GeminiLiveTranslateClient`（BYO key）: `URLSessionWebSocketTask`。プレビューのため実験的扱い。クラウド BYO はこれが唯一（D-18）。
-- `GoogleCloudTranslationV3Provider`（BYO key）: v3 は OAuth2/サービスアカウント必須（生 API キー不可）→ 着手は後回し。
+- `GeminiLiveTranslateClient`（BYO key）: `URLSessionWebSocketTask`。プレビューのため実験的扱い。**実装済みのクラウド BYO はこれが唯一**（DeepL は D-18 で撤去）。
+- `GoogleCloudTranslationV3Provider`（BYO key）: 未実装。v3 は OAuth2/サービスアカウント必須（生 API キー不可）で着手は後回しとしていたが、**REST 文単位翻訳という点で D-18 と同じ論点を持つため、着手前に採否を再判断する**。
 
 ---
 
