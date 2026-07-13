@@ -1,10 +1,10 @@
 ---
 id: TASK-26
 title: WhisperKitセグメントとdiarizationのマージ
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-11 16:36'
-updated_date: '2026-07-11 16:38'
+updated_date: '2026-07-12 23:14'
 labels:
   - Phase3
 milestone: m-3
@@ -26,3 +26,13 @@ ordinal: 26000
 <!-- AC:BEGIN -->
 - [ ] #1 時間軸アライメントで各文字起こしセグメントにspeakerLabelが付与されること
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: claude
+created: 2026-07-12 23:14
+---
+実装完了・PR #87 マージ可能判定（opus 実装・codex クロスレビュー + 修正・マージ順 #68→#77→#78→#87）。SpeakerAlignment 純粋関数（WhisperX 方式の交差合計割当・決定的タイブレーク・無効区間フィルタ）、87テスト。fillNearest は端点ギャップ距離の派生仕様として明文化。マージ後: Done 化 + Issue #45 クローズ + TASK-29/31/34 解放（着手済み）。
+---
+<!-- COMMENTS:END -->
