@@ -58,6 +58,7 @@ targets:
       properties:
         NSMicrophoneUsageDescription: "録音した音声を文字起こしするためにマイクを使用します。"
         NSSpeechRecognitionUsageDescription: "録音した音声を文字起こしするために音声認識を使用します。"
+        NSAudioCaptureUsageDescription: "会議やメディアなどのシステム音声を文字起こしするために、この Mac で再生中の音声を取り込みます。"
     entitlements:
       path: sokki.entitlements
       properties:
