@@ -320,4 +320,71 @@ struct DiarizationPipelineTests {
             #expect(profiles.count == 2)
         }
     }
+
+    // MARK: - 実照合スコアの診断（レビュー指摘対応・TASK-27）
+
+    @Test("candidateMatchScores は既存プロファイルが無ければ空配列を返す")
+    func candidateMatchScoresEmptyWhenNoProfiles() async throws {
+        let container = try makeContainer()
+        let store = SpeakerProfileStore(modelContext: ModelContext(container))
+
+        let query = makeNormalizedEmbedding(seed: 1.0)
+        let scores = try await store.candidateMatchScores(for: query)
+        #expect(scores.isEmpty)
+    }
+
+    @Test("candidateMatchScores は resolveProfiles が実際に使う比較（集約 embedding vs 既存プロファイルの EMA embedding）と同じスコアをスコア降順で返す")
+    func candidateMatchScoresReflectsActualMatching() async throws {
+        let container = try makeContainer()
+        let embedding = makeNormalizedEmbedding(seed: 3.0)
+        let mock = MockDiarizationEngine(result: makeResult([("S1", 0, 5, embedding)]))
+        let (pipeline, sessionManager, store) = makePipeline(container: container, diarization: mock)
+
+        // 1 回目の録音でプロファイルを作成する。
+        let sid1 = try await sessionManager.createSession(title: "録音1", mode: .micOnly)
+        try await sessionManager.appendSegment(MockSegment(text: "one", start: 0, end: 5), toSessionID: sid1)
+        try await pipeline.applyDiarization(audioSamples: [0], sessionID: sid1)
+
+        let profiles = try fetchProfiles(container)
+        #expect(profiles.count == 1)
+
+        // 同一 embedding を問い合わせると、findOrCreate が bestMatch で使うのと同じ
+        // コサイン類似度（≈1.0）が返る。
+        let scores = try await store.candidateMatchScores(for: embedding)
+        #expect(scores.count == 1)
+        #expect(scores[0].displayName == "話者 1")
+        #expect(abs(scores[0].score - 1.0) < 1e-4)
+
+        // 逆方向の embedding（コサイン類似度 = -1.0 になることが幾何学的に保証される）を
+        // 問い合わせると、既定閾値 0.82 を下回るスコアが返る
+        // （実際に resolveProfiles が新規プロファイルを作る根拠と一致する）。
+        let opposite = embedding.map { -$0 }
+        let lowScores = try await store.candidateMatchScores(for: opposite)
+        #expect(lowScores.count == 1)
+        #expect(abs(lowScores[0].score - (-1.0)) < 1e-4)
+        #expect(lowScores[0].score < 0.82)
+    }
+
+    @Test("candidateMatchScores は複数プロファイルをスコア降順で返す")
+    func candidateMatchScoresSortedDescending() async throws {
+        let container = try makeContainer()
+        let store = SpeakerProfileStore(modelContext: ModelContext(container))
+
+        let query = makeNormalizedEmbedding(seed: 10.0)
+        let closeEmbedding = makeNormalizedEmbedding(seed: 10.05)   // query に近い
+        let farEmbedding = makeNormalizedEmbedding(seed: 200.0)     // query から遠い
+
+        _ = try await store.candidateMatchScores(for: query)  // 副作用なし（読み取り専用）であることの確認を兼ねる
+        try await store.resolveProfiles(from: DiarizationResult(
+            segments: [
+                DiarizationSegment(start: 0, end: 1, speakerID: "far", embedding: farEmbedding),
+                DiarizationSegment(start: 1, end: 2, speakerID: "close", embedding: closeEmbedding),
+            ],
+            numberOfSpeakers: 2
+        ))
+
+        let scores = try await store.candidateMatchScores(for: query)
+        #expect(scores.count == 2)
+        #expect(scores[0].score >= scores[1].score)  // 降順
+    }
 }

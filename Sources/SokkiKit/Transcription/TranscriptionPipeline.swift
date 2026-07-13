@@ -235,8 +235,10 @@ final class TranscriptionPipeline {
         await speakerStore.updateThreshold(threshold)
 
 #if DEBUG
-        // 実 embedding での閾値 0.82 の妥当性検証用ハーネス（TASK-27）。UI には出さず、
+        // 今回の録音1回分の diarization クラスタリング安定性の診断（TASK-27）。UI には出さず、
         // DEBUG ビルドでのみ Logger（category "diagnostics"）へ INFO 出力する。
+        // NOTE: 録音間の実際の照合閾値の妥当性は、この下の resolveProfiles 内部で出力される
+        // `[TASK-27 実照合]` ログ（SpeakerProfileStore）の方を参照すること（レビュー指摘対応）。
         EmbeddingSimilarityReport.compute(from: result).log()
 #endif
 
