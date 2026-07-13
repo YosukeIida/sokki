@@ -5,11 +5,25 @@ import SwiftData
 actor SessionManager {
 
     func createSession(title: String, mode: AudioCaptureManager.CaptureMode) throws -> PersistentIdentifier {
-        let path = makeAudioFilePath(title: title)
+        let path = makeAudioFilePath(title: title, fileExtension: "m4a")
         let session = SessionModel(title: title, audioFilePath: path, captureMode: mode.rawValue)
         modelContext.insert(session)
         try modelContext.save()
         return session.persistentModelID
+    }
+
+    /// ファイルインポート用セッションを作成する（TASK-34 / P4-3）。`captureMode` は "file" 固定。
+    /// 呼び出し元は返却された `audioURL` へ実ファイルをコピー/変換して書き込む。
+    /// 音声の取り込みに失敗した場合は `deleteSession(persistentID:)` で後始末できる。
+    func createImportedSession(
+        title: String,
+        fileExtension: String
+    ) throws -> (id: PersistentIdentifier, audioURL: URL) {
+        let path = makeAudioFilePath(title: title, fileExtension: fileExtension)
+        let session = SessionModel(title: title, audioFilePath: path, captureMode: "file")
+        modelContext.insert(session)
+        try modelContext.save()
+        return (session.persistentModelID, URL(fileURLWithPath: path))
     }
 
     func appendSegment(_ segment: any TranscriptionSegment, toSessionID sessionID: PersistentIdentifier) throws {
@@ -21,23 +35,65 @@ actor SessionManager {
         try modelContext.save()
     }
 
-    func assignSpeakers(
-        segmentIDs: [UUID],
-        profileMapping: [String: SpeakerProfileModel],
-        speakerLabels: [UUID: String]
+    /// diarization 結果をセッションのセグメントへ時間区間の重なりで割り当てる（P3 / TASK-26）。
+    ///
+    /// 割当ロジックは `SpeakerAlignment.assign`（WhisperX 方式・話者ごとの交差合計が最大）に委譲する。
+    /// `profileMapping`（speakerID → プロファイル識別子）から対応する `SpeakerProfileModel` を紐づける。
+    /// `SpeakerProfileModel` は @Model のため actor 境界を越えられない。ここでは Sendable な
+    /// `PersistentIdentifier` を受け取り、この actor のコンテキスト内で解決する（CLAUDE.md 規約）。
+    func assignSpeakersByOverlap(
+        sessionID: PersistentIdentifier,
+        diarizationSegments: [DiarizationSegment],
+        profileMapping: [String: PersistentIdentifier]
     ) throws {
-        for segmentID in segmentIDs {
-            let descriptor = FetchDescriptor<SegmentModel>(
-                predicate: #Predicate { $0.id == segmentID }
-            )
-            guard let segment = try modelContext.fetch(descriptor).first else { continue }
-            if let label = speakerLabels[segmentID],
-               let profile = profileMapping[label] {
+        guard let session = modelContext.model(for: sessionID) as? SessionModel else { return }
+
+        var resolvedProfiles: [String: SpeakerProfileModel] = [:]
+        for (speakerID, profileID) in profileMapping {
+            if let profile = modelContext.model(for: profileID) as? SpeakerProfileModel {
+                resolvedProfiles[speakerID] = profile
+            }
+        }
+
+        // relationship 配列を一度だけスナップショットし、index で純粋関数の結果と対応づける。
+        let segments = session.segments
+        let intervals = segments.map {
+            SpeakerAlignment.Interval(start: $0.start, end: $0.end)
+        }
+        let assignment = SpeakerAlignment.assign(
+            transcriptionIntervals: intervals,
+            diarizationSegments: diarizationSegments
+        )
+
+        for (index, segment) in segments.enumerated() {
+            guard let speakerID = assignment[index] else { continue }
+            segment.speakerLabel = speakerID
+            if let profile = resolvedProfiles[speakerID] {
                 segment.speakerProfile = profile
-                segment.speakerLabel = label
             }
         }
         try modelContext.save()
+    }
+
+    /// 設定モデルの diarization 有効フラグ。未保存の場合は既定値（有効）とみなす。
+    func diarizationEnabled() -> Bool {
+        let descriptor = FetchDescriptor<AppSettingsModel>()
+        guard let settings = try? modelContext.fetch(descriptor).first else { return true }
+        return settings.diarizationEnabled
+    }
+
+    /// 設定モデルの声紋照合閾値。未保存の場合は既定値（0.82）とみなす（TASK-27）。
+    /// 永続化された値が非有限（NaN/infinite）または想定範囲（SettingsView のスライダー範囲 0.5〜0.95）
+    /// 外の場合は、破損データや将来のマイグレーション不備によって声紋照合が全件不一致・全件一致に
+    /// 陥らないよう、既定値へのフォールバック／範囲へのクランプを行う（レビュー指摘）。
+    /// なお旧 bestOverlapSpeaker（単一 actor 内ヘルパー）は SpeakerAlignment.assign
+    /// （WhisperX 方式・話者ごとの交差合計）に置き換えられたため削除済み。
+    func embeddingMatchThreshold() -> Float {
+        let descriptor = FetchDescriptor<AppSettingsModel>()
+        guard let settings = try? modelContext.fetch(descriptor).first else { return 0.82 }
+        let raw = settings.embeddingMatchThreshold
+        guard raw.isFinite else { return 0.82 }
+        return min(max(raw, 0.5), 0.95)
     }
 
     func updateDuration(sessionID: PersistentIdentifier, duration: Double) throws {
@@ -81,15 +137,31 @@ actor SessionManager {
         guard let session = try modelContext.fetch(descriptor).first else { return }
         if let audioFileURL = session.audioFileURL {
             try? FileManager.default.removeItem(at: audioFileURL)
+            // Both モード（TASK-12）は system レーンを `_system` 派生ファイルに別保存するため、
+            // 主ファイルと合わせて削除する（孤児ファイルを残さない）。
+            if session.captureMode == AudioCaptureManager.CaptureMode.both.rawValue {
+                let systemURL = AudioCaptureManager.systemFileURL(forPrimary: audioFileURL)
+                try? FileManager.default.removeItem(at: systemURL)
+            }
         }
         modelContext.delete(session)
         try modelContext.save()
     }
 
-    private func makeAudioFilePath(title: String) -> String {
+    /// `PersistentIdentifier` 経由でセッションを削除する（ファイルインポート失敗時の後始末用・TASK-34）。
+    func deleteSession(persistentID: PersistentIdentifier) throws {
+        guard let session = modelContext.model(for: persistentID) as? SessionModel else { return }
+        if let audioFileURL = session.audioFileURL {
+            try? FileManager.default.removeItem(at: audioFileURL)
+        }
+        modelContext.delete(session)
+        try modelContext.save()
+    }
+
+    private func makeAudioFilePath(title: String, fileExtension: String) -> String {
         let dir = Self.recordingsBaseDirectory()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let filename = "\(title)_\(UUID().uuidString.prefix(8)).m4a"
+        let filename = "\(title)_\(UUID().uuidString.prefix(8)).\(fileExtension)"
         return dir.appendingPathComponent(filename).path
     }
 

@@ -41,11 +41,16 @@ public final class TranslationCoordinator {
     private let makeBYO: (TranslationProviderKind) -> (any TranslationProvider)?
 
     private var active: (any TranslationProvider)?
+    /// prepare 中（active 化前）の provider。teardown / 新 reconcile が即時に閉じられるよう保持する（BLOCKER-2）。
+    private var preparingProvider: (any TranslationProvider)?
     private var inputCont: AsyncStream<TranslationInput>.Continuation?
     private var pumpTask: Task<Void, Never>?
 
-    /// reconcile の世代トークン。開始のたびに単調増加させ、suspension 復帰点で照合する。
-    private var generation: UInt64 = 0
+    /// 単調増加のリクエスト列。reconcile / teardown の各エントリで採番し、await 復帰点で
+    /// 「自分より後に始まった呼び出しがあるか」を照合する。自分より新しい呼び出しがあれば
+    /// 作りかけを閉じて離脱し、最新のユーザー設定が必ず勝つようにする（BLOCKER-1）。
+    /// 内部クリーンアップ（`closeActive`）はこの列を進めない。進めるのは公開エントリのみ。
+    private var requestSeq: UInt64 = 0
 
     /// テスト用: provider が起動中か（`active != nil` ⟺ 直近 evaluate が `.allow`）。
     var hasActiveProvider: Bool { active != nil }
@@ -64,16 +69,21 @@ public final class TranslationCoordinator {
 
     /// 録音開始時 / 設定変更時に呼ぶ。fail-closed で再評価する。
     ///
-    /// 重複呼び出しや所有者の明示 `teardown()` に備え、各 await 復帰点で最新世代と照合する。
-    /// 自分より新しい `reconcile` / `teardown` が走っていたら以降の処理を放棄する。
-    /// `teardown()` 自身も世代を進めるため、**自分の世代は冒頭の `teardown()` 後に採番**する。
+    /// 重複呼び出しや所有者の明示 `teardown()` に備え、**入口で `requestSeq` を採番**し、
+    /// 各 await 復帰点で「自分より後に始まった reconcile / teardown があるか」を照合する。
+    /// あれば以降の処理を放棄する。既存 provider の close は `requestSeq` を進めない内部
+    /// `closeActive()` で行うため、自分の req を採番したあとに閉じても req が奪われない。
+    /// これにより、旧 reconcile が自身の close の suspension 中に停止し、その間に新しい
+    /// reconcile が完走しても、旧 reconcile が復帰時に最新を奪い返せない（BLOCKER-1）。
     public func reconcile(ctx: RoutingContext) async {
-        await teardown()
-        generation &+= 1
-        let gen = generation
+        requestSeq &+= 1
+        let req = requestSeq
+
+        await closeActive()
+        guard req == requestSeq else { return }   // close 中に新しい呼び出しが来たら離脱
 
         let decision = await router.resolve(ctx)
-        guard gen == generation else { return }
+        guard req == requestSeq else { return }
 
         guard decision.unavailableReason == nil else {
             statusBanner = decision.unavailableReason
@@ -94,11 +104,11 @@ public final class TranslationCoordinator {
         case .denied(let reason):
             statusBanner = bannerFor(reason)   // 原文のみ。クラウド送信ゼロ。
         case .allow:
-            await activate(decision: decision, ctx: ctx, gen: gen)
+            await activate(decision: decision, ctx: ctx, req: req)
         }
     }
 
-    private func activate(decision: RoutingDecision, ctx: RoutingContext, gen: UInt64) async {
+    private func activate(decision: RoutingDecision, ctx: RoutingContext, req: UInt64) async {
         // provider の実体化。クラウド decision なのに factory が未登録なら fail-closed。
         let provider: any TranslationProvider
         if decision.isOnDevice {
@@ -112,6 +122,23 @@ public final class TranslationCoordinator {
             return   // active は nil のまま。isCloudActive は false のまま。
         }
 
+        // MAJOR（監査タグ照合）: decision と実 provider の `isOnDevice` が食い違ったら fail-closed。
+        // 例: クラウド provider が appleProvider に誤注入され、Gate をオンデバイスとして
+        //     迂回して prepare に到達する DI 事故を防ぐ。provider の nonisolated 監査タグを
+        //     Gate が信頼した decision と突き合わせ、不一致は起動しない。
+        guard provider.isOnDevice == decision.isOnDevice else {
+            lastError = .providerError(
+                "provider '\(provider.providerID)' isOnDevice=\(provider.isOnDevice) "
+                + "mismatches routing decision isOnDevice=\(decision.isOnDevice)"
+            )
+            statusBanner = "翻訳プロバイダの構成が不正です"
+            return
+        }
+
+        // BLOCKER-2: prepare 中に teardown / 新 reconcile が来ても即時にソケットを閉じられるよう、
+        // active 化前の provider をここで保持する。`closeActive()` が preparing も teardown する。
+        preparingProvider = provider
+
         // prepare は唯一の suspension 点。ここでは共有状態を書き換えず結果だけ判定に持ち帰る。
         enum PrepareOutcome { case ready, needsDownload, failed(Error) }
         let outcome: PrepareOutcome
@@ -124,12 +151,20 @@ public final class TranslationCoordinator {
             outcome = .failed(error)
         }
 
-        // BLOCKER: prepare 復帰後、最新世代でなければ作りかけの provider を破棄して離脱。
-        // 状態は一切書き換えない（新しい reconcile の結果を上書きしない）。
-        guard gen == generation else {
+        // BLOCKER: prepare 復帰後、最新でなければ作りかけの provider を破棄して離脱。
+        // 状態は一切書き換えない（新しい reconcile の結果を上書きしない）。teardown() が既に
+        // preparing を閉じている場合もあるが、teardown() は冪等契約なので二重 close は無害。
+        //
+        // compare-and-clear: `preparingProvider` は世代共通の単一スロットなので、より新しい
+        // 世代の activate が既にここへ自分の provider を書いている場合がある。無条件 nil 化は
+        // 新世代の所有記録を消し、その provider を closeActive が捕捉できなくする。**自分が
+        // 置いた provider のときだけ** クリアする（新世代の記録は温存）。
+        guard req == requestSeq else {
+            if preparingProvider === provider { preparingProvider = nil }
             await provider.teardown()
             return
         }
+        if preparingProvider === provider { preparingProvider = nil }
 
         switch outcome {
         case .failed(let error):
@@ -142,19 +177,24 @@ public final class TranslationCoordinator {
             active = provider
             isCloudActive = !decision.isOnDevice
             statusBanner = "翻訳モデルのダウンロードが必要です"
-            startPump(with: provider)
+            startPump(with: provider, req: req)
         case .ready:
             active = provider
             isCloudActive = !decision.isOnDevice
             statusBanner = decision.isOnDevice
                 ? nil
                 : "\(decision.kind.rawValue) で翻訳中（クラウド送信）"
-            startPump(with: provider)
+            startPump(with: provider, req: req)
         }
     }
 
     /// 入力ストリームを張り、翻訳結果を `translations` に流し込む pump を起動する。
-    private func startPump(with provider: any TranslationProvider) {
+    ///
+    /// MAJOR（pump 所有権）: pump に自分の `req` を渡し、出力反映・エラー処理の前に現在の
+    /// `requestSeq` と照合する。旧世代 provider の pump が close 待ちの間に生き残っても、
+    /// (1) 旧 provider の出力で `translations` を汚さない、(2) 旧 provider の stream error で
+    /// 並行起動済みの新 provider を `teardown()` しない。
+    private func startPump(with provider: any TranslationProvider, req: UInt64) {
         // #7: 確定セグメントは1行も落とせない。バッファは .unbounded。
         let (stream, cont) = AsyncStream<TranslationInput>.makeStream(bufferingPolicy: .unbounded)
         inputCont = cont
@@ -162,13 +202,15 @@ public final class TranslationCoordinator {
             let out = await provider.translateStream(stream)
             do {
                 for try await o in out {
-                    self?.translations[o.id] = o
+                    guard let self, req == self.requestSeq else { break }   // 旧世代の出力は反映しない
+                    self.translations[o.id] = o
                 }
             } catch is CancellationError {
                 // teardown による正常終了。
             } catch {
-                self?.statusBanner = "翻訳エラー: \(error.localizedDescription)"
-                await self?.teardown()   // ストリームエラーも fail-closed。
+                guard let self, req == self.requestSeq else { return }   // 旧世代の error で新 provider を閉じない
+                self.statusBanner = "翻訳エラー: \(error.localizedDescription)"
+                await self.teardown()   // ストリームエラーも fail-closed。
             }
         }
     }
@@ -180,32 +222,45 @@ public final class TranslationCoordinator {
 
     /// 録音停止 / 設定変化 / アプリ終了で呼ぶ。冪等・並行安全。
     ///
-    /// 世代を進めることで、`prepare()` suspension 中の進行中 `reconcile` を無効化する。
-    /// 所有者が prepare 停止中に `teardown()`（録音停止・アプリ終了）を呼んで完了しても、
-    /// その後 prepare が復帰した際に世代照合で弾かれ、作りかけ provider は起動されず破棄される。
+    /// `requestSeq` を進めることで、`prepare()` / `closeActive()` suspension 中の進行中
+    /// `reconcile` を無効化する。所有者が prepare 停止中に `teardown()`（録音停止・アプリ終了）
+    /// を呼んで完了しても、その後 prepare が復帰した際に req 照合で弾かれ、作りかけ provider は
+    /// 起動されず破棄される。
+    public func teardown() async {
+        requestSeq &+= 1   // 最新化: 進行中の reconcile/activate を無効化する。
+        await closeActive()
+    }
+
+    /// active / preparing provider と入出力を閉じる内部クリーンアップ。**`requestSeq` は進めない**。
     ///
-    /// MAJOR-1: `active`/`inputCont`/`pumpTask` をローカルへ退避して **await 前に即 nil クリア**
-    /// する。これにより (1) 割り込みで再入しても同一 provider を二重 teardown しない、
-    /// (2) await 中に別 `reconcile` が設定した新しい active/inputCont/pumpTask を誤って
-    /// 破棄しない。閉じるのは退避したスナップショットだけ。
+    /// `reconcile` 冒頭の再評価と公開 `teardown()` の両方から呼ぶ。列を進めないため、
+    /// 自分の req を採番したあとに呼んでも自分の req が奪われない（BLOCKER-1）。
+    ///
+    /// MAJOR-1: `active`/`preparingProvider`/`inputCont`/`pumpTask` をローカルへ退避して
+    /// **await 前に即 nil クリア** する。これにより (1) 割り込みで再入しても同一 provider を
+    /// 二重 teardown しない、(2) await 中に別 `reconcile` が設定した新しい状態を誤って破棄しない。
+    ///
+    /// BLOCKER-2: prepare 中の `preparingProvider` も閉じ、拒否 / 停止時にクラウド接続が
+    /// 残らないようにする。
     ///
     /// #3: fail-closed が最も効くべきエラー時に破れないよう、退避した provider の
     /// `teardown()`（socket/session close）を **最優先** で実行し、入力ストリームの
     /// `finish()` と自タスクの `pumpTask.cancel()` はその後に回す。
-    public func teardown() async {
-        generation &+= 1   // 進行中の reconcile/activate を無効化（残-2）。
-
+    private func closeActive() async {
         let provider = active
+        let preparing = preparingProvider
         let cont = inputCont
         let pump = pumpTask
         active = nil
+        preparingProvider = nil
         inputCont = nil
         pumpTask = nil
         isCloudActive = false
 
-        await provider?.teardown()   // 最優先: socket/session を閉じる（#3）。
-        cont?.finish()               // 入力ストリームを finish。
-        pump?.cancel()               // 最後: pump をキャンセル。
+        await provider?.teardown()    // 最優先: 稼働中 provider の socket/session を閉じる（#3）。
+        await preparing?.teardown()   // prepare 中の provider も閉じる（BLOCKER-2）。冪等契約により二重 close は無害。
+        cont?.finish()                // 入力ストリームを finish。
+        pump?.cancel()                // 最後: pump をキャンセル。
     }
 
     private func bannerFor(_ reason: TranslationDecision.DenyReason) -> String? {
