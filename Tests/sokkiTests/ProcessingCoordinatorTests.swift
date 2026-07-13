@@ -193,6 +193,40 @@ struct ProcessingCoordinatorTests {
         #expect(tracker.endOrder == [0, 1])
     }
 
+    @Test("shutdown は process(_:) の待機中の呼び出し元を CancellationError で解放する")
+    func shutdownResumesPendingProcessWaiter() async throws {
+        let sid = try await makeSessionID()
+        let job = ProcessingJob(sessionID: sid, kind: .finalizeTranscription)
+
+        let coordinator = ProcessingCoordinator(runner: { _ in
+            try await Task.sleep(for: .seconds(5))    // shutdown されるまでブロック
+        })
+
+        let waiter = Task { try await coordinator.process(job) }
+        await waitUntilProcessing(coordinator)
+        coordinator.shutdown()                        // 待機中に shutdown
+
+        // 呼び出し元は永久 suspend せず CancellationError で解放される。
+        await #expect(throws: CancellationError.self) {
+            try await waiter.value
+        }
+        // 進捗状態はアイドルにリセットされる。
+        #expect(coordinator.isProcessing == false)
+        #expect(coordinator.pendingCount == 0)
+        #expect(coordinator.activeJobName == nil)
+    }
+
+    @Test("shutdown 済みの process(_:) は CancellationError を投げる（成功偽装しない）")
+    func processAfterShutdownThrows() async throws {
+        let sid = try await makeSessionID()
+        let coordinator = ProcessingCoordinator(runner: { _ in })
+        coordinator.shutdown()
+
+        await #expect(throws: CancellationError.self) {
+            try await coordinator.process(ProcessingJob(sessionID: sid, kind: .finalizeTranscription))
+        }
+    }
+
     @Test("shutdown 後は enqueue しても処理されない")
     func noProcessingAfterShutdown() async throws {
         let sid = try await makeSessionID()

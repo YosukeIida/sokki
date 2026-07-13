@@ -55,6 +55,9 @@ final class TranscriptionPipeline {
     private(set) var coordinator: ProcessingCoordinator?
     /// 停止操作時に確定した録音長。後処理ジョブ（finalizeTranscription）が保存に使う。
     private var pendingDuration: TimeInterval?
+    /// stop() の再入ガード。停止処理は複数の await を跨ぐため、二重呼び出しで同一セッションの
+    /// ジョブが二重 enqueue され、共有状態（pendingDuration）が上書きされるのを防ぐ。
+    private var isStopping = false
 
     init(
         captureManager: AudioCaptureManager,
@@ -153,6 +156,12 @@ final class TranscriptionPipeline {
     }
 
     func stop() async throws {
+        // 再入ガード: 停止処理中の二重呼び出しは無視する（同一セッションの二重ジョブ enqueue と
+        // pendingDuration 上書きを防ぐ）。defer で全ての離脱経路で確実にフラグを戻す。
+        guard !isStopping else { return }
+        isStopping = true
+        defer { isStopping = false }
+
         timerTask?.cancel()
 
         // 録音長は「開始〜停止操作まで」の実時間で確定（後続フラッシュ時間を含めない・P1-2）

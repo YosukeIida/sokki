@@ -104,7 +104,9 @@ public final class ProcessingCoordinator {
     /// キューは直列なので、先行ジョブが処理中なら順番待ちになる。runner が throw / キャンセルした場合は
     /// その error を rethrow する（後続ジョブの実行には影響しない）。
     public func process(_ job: ProcessingJob) async throws {
-        guard !isShutDown else { return }
+        // shutdown 済みでは処理されないため、成功偽装せず明示的にキャンセルとして扱う
+        // （呼び出し元が完了を待ち続けて hang しないようにする）。
+        guard !isShutDown else { throw CancellationError() }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             completions[job.id] = cont
             pendingCount += 1
@@ -126,6 +128,21 @@ public final class ProcessingCoordinator {
         currentJobTask?.cancel()
         continuation?.finish()
         consumerTask?.cancel()
+
+        // 実行待ち（バッファ内）ジョブは consumer 停止により実行されないため、`process(_:)` で
+        // 待機している呼び出し元を CancellationError で解放する（CheckedContinuation リーク・
+        // 呼び出し元の永久 suspend を防ぐ）。execute(_:) は removeValue で取り出すため二重 resume はしない。
+        let pendingWaiters = completions
+        completions.removeAll()
+        for (_, waiter) in pendingWaiters {
+            waiter.resume(throwing: CancellationError())
+        }
+
+        // 進捗状態をアイドルへリセットする。
+        isProcessing = false
+        pendingCount = 0
+        activeJobName = nil
+
         let center = NSWorkspace.shared.notificationCenter
         if let o = sleepObserver { center.removeObserver(o) }
         if let o = wakeObserver { center.removeObserver(o) }
