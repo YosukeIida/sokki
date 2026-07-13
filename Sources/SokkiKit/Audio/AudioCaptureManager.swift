@@ -68,8 +68,11 @@ actor AudioCaptureManager {
 
         micStream          = AsyncStream { micCont    = $0 }
         systemStream       = AsyncStream { sysCont    = $0 }
-        micLevelStream     = AsyncStream { micLvlCont = $0 }
-        systemLevelStream  = AsyncStream { sysLvlCont = $0 }
+        // レベルストリームは表示専用（UI が追いつかない間の未消費値が無制限に溜まらないよう
+        // 最新値のみ保持する。音声認識/録音が読む micStream/systemStream は無制限のまま・
+        // 1 サンプルも欠落させない・codex レビュー対応 TASK-13）。
+        micLevelStream     = AsyncStream(bufferingPolicy: .bufferingNewest(1)) { micLvlCont = $0 }
+        systemLevelStream  = AsyncStream(bufferingPolicy: .bufferingNewest(1)) { sysLvlCont = $0 }
 
         micContinuation         = micCont
         systemContinuation      = sysCont
@@ -98,8 +101,9 @@ actor AudioCaptureManager {
 
         micStream         = AsyncStream { micCont    = $0 }
         systemStream      = AsyncStream { sysCont    = $0 }
-        micLevelStream    = AsyncStream { micLvlCont = $0 }
-        systemLevelStream = AsyncStream { sysLvlCont = $0 }
+        // 表示専用レベルストリームは最新値のみ保持（codex レビュー対応 TASK-13。詳細は init 参照）。
+        micLevelStream    = AsyncStream(bufferingPolicy: .bufferingNewest(1)) { micLvlCont = $0 }
+        systemLevelStream = AsyncStream(bufferingPolicy: .bufferingNewest(1)) { sysLvlCont = $0 }
 
         micContinuation         = micCont
         systemContinuation      = sysCont
