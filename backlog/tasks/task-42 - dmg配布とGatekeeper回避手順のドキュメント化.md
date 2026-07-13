@@ -1,10 +1,10 @@
 ---
 id: TASK-42
 title: dmg配布とGatekeeper回避手順のドキュメント化
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-12 19:01'
-updated_date: '2026-07-12 19:02'
+updated_date: '2026-07-12 21:55'
 labels:
   - Phase2
   - infra
@@ -38,3 +38,13 @@ Homebrew Cask 配布（TASK-37）は Developer ID 取得後の話として据え
 - [ ] #3 project.yml 変更時は xcodegen generate を実行し entitlements の 3 権限（audio-input / screen-capture / network.client）が保持されていることを確認する
 - [ ] #4 対応する GitHub Issue がある場合は完了時に gh issue close でクローズして backlog と同期する
 <!-- DOD:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: claude
+created: 2026-07-12 21:55
+---
+実装完了・PR #71 作成済み（sonnet 実装・Fable レビュー済み・マージはユーザー承認待ち）。実 dmg 生成・マウント検証まで完了。重要な副産物: 無署名ビルドには entitlements が埋め込まれないことを実証（codesign -d --entitlements - が空）。TASK-11 の TCC 実機検証の前提情報。残タスク（ユーザー）: gh release create の実行とクリーン環境での Gatekeeper 警告実地確認。マージ後に Done 化と Issue #65 クローズ。
+---
+<!-- COMMENTS:END -->
