@@ -43,9 +43,34 @@ public struct SettingsView: View {
         .padding()
     }
 
+    /// SpeechAnalyzer（macOS 26+ の Speech 新 API）が利用可能か。
+    private var isSpeechAnalyzerAvailable: Bool {
+        if #available(macOS 26.0, *) { return true }
+        return false
+    }
+
     private var transcriptionTab: some View {
         Form {
             Section("エンジン") {
+                Picker("文字起こしエンジン", selection: Binding(
+                    get: { settings.transcriptionEngine },
+                    set: { settings.transcriptionEngine = $0 }
+                )) {
+                    Text("WhisperKit").tag("whisperkit")
+                    Text("Apple SpeechAnalyzer").tag("speechAnalyzer")
+                }
+                .disabled(!isSpeechAnalyzerAvailable)
+                if !isSpeechAnalyzerAvailable {
+                    Text("Apple SpeechAnalyzer は macOS 26 以降で利用できます。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("エンジンの切り替えはアプリの再起動後に反映されます。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Section("Whisper モデル") {
                 Picker("Whisper モデル", selection: Binding(
                     get: { settings.whisperModelVariant },
                     set: { settings.whisperModelVariant = $0 }
