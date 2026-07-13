@@ -105,7 +105,62 @@ struct DERCalculatorTests {
         #expect(abs(base.confusionRate - relabeled.confusionRate) < 1e-9)
     }
 
-    @Test("最適マッピングは共起最大の割当を選ぶ（貪欲では誤る配置）")
+    @Test("同一話者の重複区間があっても二重計上せず負の confusion を生まない")
+    func duplicateSameSpeakerIntervalsDoNotDoubleCount() {
+        // hyp に同一話者 s1 の完全に重なる区間が 2 本ある（手動ラベリングの誤り等を想定）。
+        // 話者数は「発話中の区間の本数」ではなく「発話中の話者数」なので、重複があっても
+        // nRef=1, nSys=1 として扱われるべきで、confusion が負になってはならない。
+        let ref = [iv(0, 5, "A")]
+        let hyp = [iv(0, 5, "s1"), iv(0, 5, "s1")]
+        let r = DERCalculator.computeDER(reference: ref, hypothesis: hyp)
+        #expect(r.confusionDuration >= 0)
+        #expect(r.falseAlarmDuration >= 0)
+        #expect(r.missedDuration >= 0)
+        // s1 は A に一致するので DER 0% のはず（重複区間は同一話者の冗長な表現に過ぎない）。
+        #expect(abs(r.der) < 1e-9)
+    }
+
+    @Test("ref 側の重複区間も二重計上せず missed を誤らせない")
+    func duplicateSameSpeakerReferenceIntervalsDoNotDoubleCount() {
+        let ref = [iv(0, 5, "A"), iv(0, 5, "A")]
+        let hyp = [iv(0, 5, "s1")]
+        let r = DERCalculator.computeDER(reference: ref, hypothesis: hyp)
+        #expect(r.missedDuration >= 0)
+        #expect(abs(r.der) < 1e-9)
+        #expect(r.totalReferenceDuration == 5)
+    }
+
+    @Test("貪欲マッチングは全体最適を保証しない（既知の受容済み限界を回帰固定する）")
+    func greedyMatchingIsNotAlwaysOptimal() {
+        // maxExactPermutations を超える病的な話者数のときだけ使われる貪欲退避は、
+        // 最適解を保証しない設計上の既知の限界（DERCalculator.swift のドキュメントコメント参照）。
+        // 実運用の会議（2〜6 名）ではまず発生しないが、退避が起きた場合の挙動を明示的に固定しておく。
+        //
+        // 共起行列: A-x=10, A-y=9, B-x=9, B-y=0。
+        // 最適解は A->y(9) + B->x(9) = 18。貪欲は最大ペア A->x(10) を先取りし、残りは B->y(0) のみで計 10。
+        func weight(ref: String, sys: String) -> TimeInterval {
+            switch (ref, sys) {
+            case ("A", "x"): return 10
+            case ("A", "y"): return 9
+            case ("B", "x"): return 9
+            case ("B", "y"): return 0
+            default: return 0
+            }
+        }
+        let exact = DERCalculator.exactBestMatching(small: ["A", "B"], large: ["x", "y"], weight: weight)
+        let greedy = DERCalculator.greedyMatching(small: ["A", "B"], large: ["x", "y"], weight: weight)
+
+        func totalWeight(_ pairs: [(small: String, large: String)]) -> TimeInterval {
+            pairs.reduce(0) { $0 + weight(ref: $1.small, sys: $1.large) }
+        }
+
+        #expect(totalWeight(exact) == 18)
+        #expect(totalWeight(greedy) == 10)
+        // 貪欲が全体最適に届かないことそのものを固定する（この差が「貪欲は近似に過ぎない」根拠）。
+        #expect(totalWeight(greedy) < totalWeight(exact))
+    }
+
+    @Test("最適マッピングは共起最大の割当を選ぶ（話者数が少ないので常に全順列＝最適解を使う経路）")
     func optimalMappingBeatsGreedy() {
         // 貪欲が最初に最大共起ペアを取ると全体最適を外す配置。
         // ref A[0,10), B[10,30)。hyp s1[0,10)+[10,18)（Aと10, Bと8 共起）, s2[18,30)（Bと12 共起）。

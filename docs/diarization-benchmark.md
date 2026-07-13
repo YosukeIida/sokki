@@ -38,6 +38,10 @@ DER = (missed + falseAlarm + confusion) / total
 - **collar**: `collar > 0` のとき各リファレンス境界の周囲 ±collar をスコア対象外にする。
   CALLHOME 系の「collar 0.25s」= 片側 0.25s の慣習に一致。境界付近のアノテーション誤差を許容できる。
   参考値と厳密に揃えるなら、参照した論文の collar 設定に合わせること（DIHARD は collar 0）。
+  > **注意**: `SOKKI_DER_COLLAR` は境界**片側**の半径（秒）を指定する。他ツール（pyannote.metrics の
+  > `DiarizationErrorRate(collar=...)` 等）は実装によって「片側」「全体幅」のどちらを指すか流儀が
+  > 分かれるため、他ツールの出力と数値を突き合わせる際は必ずそのツールのドキュメントで collar
+  > 引数の定義（片側か全体幅か）を確認すること。同じ数値を渡しても除外幅が 2 倍違う場合がある。
 
 これは NIST md-eval / pyannote.metrics の `DiarizationErrorRate` と同じ定義。したがって
 Sortformer / Pyannote の公表値と**同じ土俵**で比較できる（ただし collar と評価コーパスは揃える必要がある。下記 6 節）。

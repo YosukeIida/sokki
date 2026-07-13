@@ -52,6 +52,26 @@ struct RTTMParserTests {
         }
     }
 
+    @Test("dur <= 0 の SPEAKER 行は黙って捨てず nonPositiveDuration を投げる")
+    func rttmNonPositiveDuration() {
+        let zero = "SPEAKER meeting 1 1.0 0.0 <NA> <NA> spk_A <NA> <NA>"
+        #expect(throws: RTTMParser.ParseError.self) {
+            _ = try RTTMParser.parseRTTM(zero)
+        }
+        let negative = "SPEAKER meeting 1 1.0 -2.0 <NA> <NA> spk_A <NA> <NA>"
+        #expect(throws: RTTMParser.ParseError.self) {
+            _ = try RTTMParser.parseRTTM(negative)
+        }
+    }
+
+    @Test("NaN/Inf を装った数値フィールドは invalidNumber を投げる")
+    func rttmNonFiniteNumber() {
+        let rttm = "SPEAKER meeting 1 nan 2.0 <NA> <NA> spk_A <NA> <NA>"
+        #expect(throws: RTTMParser.ParseError.self) {
+            _ = try RTTMParser.parseRTTM(rttm)
+        }
+    }
+
     @Test("Audacity 互換 TSV（start\\tend\\tspeaker）をパースする")
     func parsesTSV() throws {
         let tsv = "0.000000\t5.250000\tspk_A\n5.250000\t8.250000\tspk_B\n"
@@ -82,6 +102,18 @@ struct RTTMParserTests {
         let tsv = "0.0\tspk_A"
         #expect(throws: RTTMParser.ParseError.self) {
             _ = try RTTMParser.parseTSV(tsv)
+        }
+    }
+
+    @Test("end <= start の TSV 行は黙って捨てず nonPositiveDuration を投げる")
+    func tsvNonPositiveDuration() {
+        let zero = "1.0\t1.0\tspk_A" // Audacity の点ラベル（区間選択し忘れ）を想定
+        #expect(throws: RTTMParser.ParseError.self) {
+            _ = try RTTMParser.parseTSV(zero)
+        }
+        let reversed = "2.0\t1.0\tspk_A"
+        #expect(throws: RTTMParser.ParseError.self) {
+            _ = try RTTMParser.parseTSV(reversed)
         }
     }
 }

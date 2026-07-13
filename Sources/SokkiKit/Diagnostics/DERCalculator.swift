@@ -108,7 +108,13 @@ public enum DERCalculator {
         var cooccur: [String: [String: TimeInterval]] = [:] // ref -> sys -> 共起時間
 
         // 素区間ごとの集計を 2 パスに分けず、まず共起行列とスコアに必要な素区間情報を一度で作る。
-        struct Slice { let duration: TimeInterval; let refActive: [String]; let sysActive: [String] }
+        //
+        // NOTE: 同一話者の区間が重複（例: 手動ラベリングの誤りで同じ話者の区間を 2 回書いてしまった、
+        // 境界丸めで隣接区間がわずかに重なった等）していても、DER の N_ref/N_sys は「その時点で発話中の
+        // “話者数”」であって「区間の本数」ではない。区間本数のまま数えると同一話者の重複が別話者として
+        // 二重計上され、負の confusion（数学的に無効な値）まで発生し得る。そのため各素区間の active な
+        // 話者は `Set<String>` で一意化してから数える。
+        struct Slice { let duration: TimeInterval; let refActive: Set<String>; let sysActive: Set<String> }
         var slices: [Slice] = []
         slices.reserveCapacity(max(0, boundaries.count - 1))
 
@@ -120,8 +126,8 @@ public enum DERCalculator {
             guard d > 0 else { continue }
             if isInNoScore(mid, regions: noScore) { continue }
 
-            let refActive = ref.filter { $0.start <= mid && mid < $0.end }.map { $0.speaker }
-            let sysActive = hyp.filter { $0.start <= mid && mid < $0.end }.map { $0.speaker }
+            let refActive = Set(ref.filter { $0.start <= mid && mid < $0.end }.map { $0.speaker })
+            let sysActive = Set(hyp.filter { $0.start <= mid && mid < $0.end }.map { $0.speaker })
             slices.append(Slice(duration: d, refActive: refActive, sysActive: sysActive))
 
             for r in refActive {
@@ -148,11 +154,10 @@ public enum DERCalculator {
         for slice in slices {
             let nRef = slice.refActive.count
             let nSys = slice.sysActive.count
-            let refSet = Set(slice.refActive)
             // 一致数: マッピング先の ref がこの区間でも発話している sys の数。
             var correct = 0
             for s in slice.sysActive {
-                if let r = sysToRef[s], refSet.contains(r) { correct += 1 }
+                if let r = sysToRef[s], slice.refActive.contains(r) { correct += 1 }
             }
             let d = slice.duration
             missed += Double(max(0, nRef - nSys)) * d
@@ -225,7 +230,10 @@ public enum DERCalculator {
     }
 
     /// small の各要素を large の相異なる要素へ割り当てる全単射を全列挙し、重み合計最大の割当を返す。
-    private static func exactBestMatching(
+    ///
+    /// `private` ではなく型内部可視（`internal`）にしてある。テストから直接呼び、
+    /// `greedyMatching` との最適性の差を検証できるようにするため。
+    static func exactBestMatching(
         small: [String],
         large: [String],
         weight: (String, String) -> TimeInterval
@@ -256,7 +264,10 @@ public enum DERCalculator {
     }
 
     /// 共起の大きいペアから貪欲に確定する（病的な話者数のときの退避）。
-    private static func greedyMatching(
+    ///
+    /// `private` ではなく型内部可視（`internal`）にしてある。テストから直接呼び、
+    /// `exactBestMatching` との最適性の差を検証できるようにするため。
+    static func greedyMatching(
         small: [String],
         large: [String],
         weight: (String, String) -> TimeInterval

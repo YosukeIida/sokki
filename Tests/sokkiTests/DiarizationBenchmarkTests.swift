@@ -104,15 +104,26 @@ struct DiarizationBenchmarkTests {
 
         // 声紋閾値 0.82 の材料: 話者セントロイド間のコサイン類似度。
         // 別話者どうしが 0.82 を下回る（=閾値で分離できる）ことを実測で確認する材料。
-        let similarities = pairwiseCentroidSimilarities(segments: result.segments)
+        //
+        // NOTE: グルーピングは diarization 自身が出した speakerID（クラスタ ID）をそのまま使わず、
+        // DER 計算で得た最適マッピング（sys -> ref）でリファレンス話者ラベルへ読み替えてから行う。
+        // 生のクラスタ ID をそのまま「話者」とみなすと、同一人物が diarization 側で複数クラスタに
+        // 分裂した場合に「別話者ペア」と誤認してしまい、閾値 0.82 の妥当性材料として歪む。
+        // ただし逆方向（異なる話者が 1 クラスタに誤って統合された場合）はこの読み替えでは救えず、
+        // その場合は当該話者ペアがそもそも比較対象から消える点は既知の限界として残る。
+        // また、本レポートは「別話者ペアの類似度」のみを見ており、同一話者ペアの類似度分布
+        // （false reject 側 / FRR）は含まない。閾値 0.82 の総合評価には両方が必要な点に注意。
+        let similarities = pairwiseCentroidSimilarities(segments: result.segments, speakerMapping: der.speakerMapping)
         if similarities.isEmpty {
             lines.append("声紋類似度: embedding が無いため算出不可")
         } else {
-            lines.append("話者セントロイド間コサイン類似度（別話者ペア / 閾値 0.82 の妥当性材料）:")
+            lines.append("話者セントロイド間コサイン類似度（別話者ペア / 閾値 0.82 の妥当性材料。ref ラベルへ読み替え済み）:")
             for entry in similarities {
                 let flag = entry.similarity >= 0.82 ? "  ⚠ >=0.82（別話者だが閾値超過）" : ""
                 lines.append(String(format: "  %@ vs %@ : %.4f%@", entry.a, entry.b, entry.similarity, flag))
             }
+            lines.append("  注: 上記は「別話者ペア」の類似度のみ（FAR 側の材料）。同一話者ペアの類似度分布")
+            lines.append("      （FRR 側）はこのハーネスでは未計測。閾値 0.82 の総合判断には別途必要。")
         }
         lines.append("========================================================")
 
@@ -122,18 +133,26 @@ struct DiarizationBenchmarkTests {
     private struct SimilarityEntry { let a: String; let b: String; let similarity: Float }
 
     /// 各話者の embedding 平均（セントロイド）を作り、別話者ペア間のコサイン類似度を返す。
-    private func pairwiseCentroidSimilarities(segments: [DiarizationSegment]) -> [SimilarityEntry] {
+    ///
+    /// `speakerMapping`（DER 計算で得た sys -> ref の最適マッピング）で hyp のクラスタ ID を
+    /// リファレンス話者ラベルへ読み替えてからグルーピングする。マッピングに無いクラスタ ID
+    /// （共起が無く対応が付かなかった場合）は自分自身のラベルのままにする。
+    private func pairwiseCentroidSimilarities(
+        segments: [DiarizationSegment],
+        speakerMapping: [String: String]
+    ) -> [SimilarityEntry] {
         var sums: [String: [Float]] = [:]
         var counts: [String: Int] = [:]
         for seg in segments {
             guard let emb = seg.embedding else { continue }
-            if var acc = sums[seg.speakerID] {
+            let label = speakerMapping[seg.speakerID] ?? seg.speakerID
+            if var acc = sums[label] {
                 for i in 0..<min(acc.count, emb.count) { acc[i] += emb[i] }
-                sums[seg.speakerID] = acc
+                sums[label] = acc
             } else {
-                sums[seg.speakerID] = emb
+                sums[label] = emb
             }
-            counts[seg.speakerID, default: 0] += 1
+            counts[label, default: 0] += 1
         }
         let centroids: [String: [Float]] = sums.mapValues { l2Normalize($0) }
         let matcher = EmbeddingMatcher()

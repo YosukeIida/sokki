@@ -12,6 +12,9 @@ public enum RTTMParser {
     public enum ParseError: Error, LocalizedError, Equatable {
         case malformedLine(line: Int, content: String)
         case invalidNumber(line: Int, field: String)
+        /// `end <= start`（区間長が 0 以下）。人手ラベリングの typo（点ラベルの取り違え等）を
+        /// 黙って握りつぶさず報告するための専用ケース。
+        case nonPositiveDuration(line: Int, start: TimeInterval, end: TimeInterval)
 
         public var errorDescription: String? {
             switch self {
@@ -19,16 +22,21 @@ public enum RTTMParser {
                 return "RTTM/TSV \(line) 行目を解釈できません: \(content)"
             case .invalidNumber(let line, let field):
                 return "RTTM/TSV \(line) 行目の数値フィールドが不正です: \(field)"
+            case .nonPositiveDuration(let line, let start, let end):
+                return "RTTM/TSV \(line) 行目の区間が不正です（end <= start）: start=\(start), end=\(end)"
             }
         }
     }
 
     /// RTTM テキストをパースする。
     ///
-    /// RTTM の `SPEAKER` 行は空白区切りの 10 フィールド:
+    /// RTTM の `SPEAKER` 行は標準では空白区切りの 10 フィールド:
     /// `SPEAKER <file> <chnl> <start> <dur> <NA> <NA> <speaker> <conf> <NA>`。
     /// `start`（4 列目）と `dur`（5 列目）から `[start, start+dur)` を、`speaker`（8 列目）から
     /// 話者ラベルを取り出す。`SPEAKER` 以外の型行（`SPKR-INFO` 等）・空行・`;;` コメントは無視する。
+    /// 本パーサは末尾の任意フィールド（`conf` 以降）を実際には参照しないため、8 列（`speaker` まで）
+    /// あれば受理する寛容な実装にしてある（10 列未満だからといってエラーにはしない）。
+    /// `dur <= 0`（区間長が 0 以下）は `.nonPositiveDuration` として明示的にエラー扱いする。
     public static func parseRTTM(_ text: String) throws -> [DiarizationInterval] {
         var intervals: [DiarizationInterval] = []
         for (index, rawLine) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
@@ -41,11 +49,14 @@ public enum RTTMParser {
             guard fields.count >= 8 else {
                 throw ParseError.malformedLine(line: lineNo, content: line)
             }
-            guard let start = Double(fields[3]) else {
+            guard let start = Double(fields[3]), start.isFinite else {
                 throw ParseError.invalidNumber(line: lineNo, field: fields[3])
             }
-            guard let dur = Double(fields[4]) else {
+            guard let dur = Double(fields[4]), dur.isFinite else {
                 throw ParseError.invalidNumber(line: lineNo, field: fields[4])
+            }
+            guard dur > 0 else {
+                throw ParseError.nonPositiveDuration(line: lineNo, start: start, end: start + dur)
             }
             let speaker = fields[7]
             intervals.append(DiarizationInterval(start: start, end: start + dur, speaker: speaker))
@@ -71,11 +82,14 @@ public enum RTTMParser {
             guard fields.count >= 3 else {
                 throw ParseError.malformedLine(line: lineNo, content: line)
             }
-            guard let start = Double(fields[0]) else {
+            guard let start = Double(fields[0]), start.isFinite else {
                 throw ParseError.invalidNumber(line: lineNo, field: fields[0])
             }
-            guard let end = Double(fields[1]) else {
+            guard let end = Double(fields[1]), end.isFinite else {
                 throw ParseError.invalidNumber(line: lineNo, field: fields[1])
+            }
+            guard end > start else {
+                throw ParseError.nonPositiveDuration(line: lineNo, start: start, end: end)
             }
             // 話者ラベルは 3 列目以降を空白で連結（ラベルに空白を含む可能性に配慮）。
             let speaker = fields[2...].joined(separator: " ")
