@@ -195,7 +195,6 @@ public struct SettingsView: View {
                 )) {
                     Text("自動").tag(TranslationProviderKind.auto)
                     Text("Apple（オンデバイス）").tag(TranslationProviderKind.apple)
-                    Text("DeepL（BYO・要キー）").tag(TranslationProviderKind.deepL)
                     Text("Gemini Live（BYO・実験的）").tag(TranslationProviderKind.geminiLive)
                 }
                 .disabled(!settings.translationEnabled)
@@ -262,7 +261,6 @@ public struct SettingsView: View {
 
     private func byoDisplayName(_ kind: TranslationProviderKind) -> String {
         switch kind {
-        case .deepL: return "DeepL"
         case .geminiLive: return "Gemini Live"
         case .googleCloudV3: return "Google Cloud Translation"
         case .apple, .auto: return kind.rawValue

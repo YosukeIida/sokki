@@ -27,7 +27,7 @@ struct ProcessingModeIndicatorTests {
     private func ctx(privacy: Bool) -> RoutingContext {
         RoutingContext(
             enabled: true, preferred: .auto, source: ja, target: en,
-            privacyMode: privacy, registeredCloudKinds: [.deepL], cloudPreferenceOrder: [.deepL]
+            privacyMode: privacy, registeredCloudKinds: [.geminiLive], cloudPreferenceOrder: [.geminiLive]
         )
     }
 
@@ -37,10 +37,10 @@ struct ProcessingModeIndicatorTests {
     @MainActor
     func badgeFollowsCoordinatorCloudActive() async {
         let apple = MockTranslationProvider(providerID: "apple", isOnDevice: true)
-        let cloud = MockTranslationProvider(providerID: "deepL", isOnDevice: false)
+        let cloud = MockTranslationProvider(providerID: "geminiLive", isOnDevice: false)
         let coordinator = TranslationCoordinator(
             router: TranslationRouter(availability: MockAvailability(stub: .unsupported)),
-            keychain: MockAPIKeyChecking(keys: ["deepL"]),
+            keychain: MockAPIKeyChecking(keys: ["geminiLive"]),
             appleProvider: apple,
             makeBYO: { _ in cloud }
         )

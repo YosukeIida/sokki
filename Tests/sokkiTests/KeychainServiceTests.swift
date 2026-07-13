@@ -26,10 +26,10 @@ struct KeychainServiceTests {
     @Test("store → retrieve で保存した値がそのまま取得できる")
     func storeThenRetrieveRoundTrips() throws {
         let service = makeService()
-        defer { try? service.delete(for: "deepL") }
+        defer { try? service.delete(for: "geminiLive") }
 
-        try service.store("sk-test-12345", for: "deepL")
-        let retrieved = try service.retrieve(for: "deepL")
+        try service.store("sk-test-12345", for: "geminiLive")
+        let retrieved = try service.retrieve(for: "geminiLive")
 
         #expect(retrieved == "sk-test-12345")
     }
@@ -46,12 +46,12 @@ struct KeychainServiceTests {
     @Test("同一 providerID への再 store は upsert される（重複エラーにならない）")
     func storeTwiceUpsertsValue() throws {
         let service = makeService()
-        defer { try? service.delete(for: "deepL") }
+        defer { try? service.delete(for: "geminiLive") }
 
-        try service.store("first-value", for: "deepL")
-        try service.store("second-value", for: "deepL")
+        try service.store("first-value", for: "geminiLive")
+        try service.store("second-value", for: "geminiLive")
 
-        #expect(try service.retrieve(for: "deepL") == "second-value")
+        #expect(try service.retrieve(for: "geminiLive") == "second-value")
     }
 
     @Test("delete 後は retrieve が nil を返す")
@@ -59,12 +59,12 @@ struct KeychainServiceTests {
         let service = makeService()
         // `delete`（テスト対象の呼び出し）自体が失敗した場合でも項目を残さないよう、
         // store の前に defer を設定しておく。
-        defer { try? service.delete(for: "deepL") }
+        defer { try? service.delete(for: "geminiLive") }
 
-        try service.store("to-be-deleted", for: "deepL")
-        try service.delete(for: "deepL")
+        try service.store("to-be-deleted", for: "geminiLive")
+        try service.delete(for: "geminiLive")
 
-        #expect(try service.retrieve(for: "deepL") == nil)
+        #expect(try service.retrieve(for: "geminiLive") == nil)
     }
 
     @Test("未登録の providerID への delete は冪等に成功する（throw しない）")
@@ -80,15 +80,15 @@ struct KeychainServiceTests {
     func keysAreIsolatedPerProviderID() throws {
         let service = makeService()
         defer {
-            try? service.delete(for: "deepL")
             try? service.delete(for: "geminiLive")
+            try? service.delete(for: "googleCloudV3")
         }
 
-        try service.store("deepl-key", for: "deepL")
-        try service.store("gemini-key", for: "geminiLive")
+        try service.store("geminiLive-key", for: "geminiLive")
+        try service.store("google-cloud-key", for: "googleCloudV3")
 
-        #expect(try service.retrieve(for: "deepL") == "deepl-key")
-        #expect(try service.retrieve(for: "geminiLive") == "gemini-key")
+        #expect(try service.retrieve(for: "geminiLive") == "geminiLive-key")
+        #expect(try service.retrieve(for: "googleCloudV3") == "google-cloud-key")
     }
 
     // MARK: - hasKey（APIKeyChecking 適合）
@@ -97,16 +97,16 @@ struct KeychainServiceTests {
     func hasKeyReflectsTransitions() throws {
         let service = makeService()
         // 途中の `#expect` 失敗や `delete`（テスト対象）自体の失敗でも項目を残さない。
-        defer { try? service.delete(for: "deepL") }
+        defer { try? service.delete(for: "geminiLive") }
         let checking: any APIKeyChecking = service
 
-        #expect(checking.hasKey(for: "deepL") == false)
+        #expect(checking.hasKey(for: "geminiLive") == false)
 
-        try service.store("some-key", for: "deepL")
-        #expect(checking.hasKey(for: "deepL") == true)
+        try service.store("some-key", for: "geminiLive")
+        #expect(checking.hasKey(for: "geminiLive") == true)
 
-        try service.delete(for: "deepL")
-        #expect(checking.hasKey(for: "deepL") == false)
+        try service.delete(for: "geminiLive")
+        #expect(checking.hasKey(for: "geminiLive") == false)
     }
 
     // MARK: - apiKey(for:)（将来の APIKeyProviding 適合に向けた注入点）
@@ -114,11 +114,11 @@ struct KeychainServiceTests {
     @Test("apiKey(for:) は登録済みの実キーを返し、未登録なら nil を返す")
     func apiKeyForReturnsStoredValueOrNil() async throws {
         let service = makeService()
-        defer { try? service.delete(for: "deepL") }
+        defer { try? service.delete(for: "geminiLive") }
 
-        #expect(await service.apiKey(for: "deepL") == nil)
+        #expect(await service.apiKey(for: "geminiLive") == nil)
 
-        try service.store("real-secret-key", for: "deepL")
-        #expect(await service.apiKey(for: "deepL") == "real-secret-key")
+        try service.store("real-secret-key", for: "geminiLive")
+        #expect(await service.apiKey(for: "geminiLive") == "real-secret-key")
     }
 }

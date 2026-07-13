@@ -14,7 +14,7 @@ struct TranslationRouterTests {
         preferred: TranslationProviderKind = .auto,
         privacy: Bool = false,
         registered: Set<TranslationProviderKind> = [],
-        order: [TranslationProviderKind] = [.geminiLive, .googleCloudV3, .deepL]
+        order: [TranslationProviderKind] = [.geminiLive, .googleCloudV3]
     ) -> RoutingContext {
         RoutingContext(
             enabled: enabled,
@@ -66,13 +66,13 @@ struct TranslationRouterTests {
     @Test("明示 BYO は登録有無に依らず route だけ返す（#4: key 判定は Gate）")
     func explicitBYORouteOnly() async {
         // 未登録扱いでも Router は route を返す（key/登録の判定は Router の責務外）。
-        let notRegistered = await router(.installed).resolve(ctx(preferred: .deepL, registered: []))
-        #expect(notRegistered.kind == .deepL)
+        let notRegistered = await router(.installed).resolve(ctx(preferred: .geminiLive, registered: []))
+        #expect(notRegistered.kind == .geminiLive)
         #expect(notRegistered.isOnDevice == false)
         #expect(notRegistered.isUserExplicitChoice == true)
         #expect(notRegistered.unavailableReason == nil)   // Router は「APIキー未設定」を返さない
         // 登録あり
-        let registered = await router(.installed).resolve(ctx(preferred: .deepL, registered: [.deepL]))
+        let registered = await router(.installed).resolve(ctx(preferred: .geminiLive, registered: [.geminiLive]))
         #expect(registered.unavailableReason == nil)
     }
 
@@ -87,8 +87,8 @@ struct TranslationRouterTests {
     @Test("auto + Apple 未対応 → 優先順の先頭『登録済み』クラウドへ自動FB（key は見ない）")
     func autoFallbackToCloud() async {
         let d = await router(.unsupported).resolve(
-            ctx(preferred: .auto, registered: [.googleCloudV3, .deepL],
-                order: [.geminiLive, .googleCloudV3, .deepL])
+            ctx(preferred: .auto, registered: [.googleCloudV3],
+                order: [.geminiLive, .googleCloudV3])
         )
         // geminiLive は未登録 → 次の googleCloudV3 が選ばれる（キー有無は Gate が後段で判定）
         #expect(d.kind == .googleCloudV3)

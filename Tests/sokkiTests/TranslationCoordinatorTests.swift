@@ -35,15 +35,15 @@ struct TranslationCoordinatorTests {
     @Test("privacy ON + auto + Apple 未対応 ではクラウド provider の prepare が一度も呼ばれない")
     func cloudNeverPreparedUnderPrivacy() async {
         let apple = MockTranslationProvider(providerID: "apple", isOnDevice: true)
-        let cloud = MockTranslationProvider(providerID: "deepL", isOnDevice: false)
+        let cloud = MockTranslationProvider(providerID: "geminiLive", isOnDevice: false)
         let coordinator = TranslationCoordinator(
             router: TranslationRouter(availability: MockAvailability(stub: .unsupported)),
-            keychain: MockAPIKeyChecking(keys: ["deepL"]),
+            keychain: MockAPIKeyChecking(keys: ["geminiLive"]),
             appleProvider: apple,
             makeBYO: { _ in cloud }
         )
 
-        await coordinator.reconcile(ctx: ctx(privacy: true, registered: [.deepL], order: [.deepL]))
+        await coordinator.reconcile(ctx: ctx(privacy: true, registered: [.geminiLive], order: [.geminiLive]))
 
         #expect(coordinator.hasActiveProvider == false)
         #expect(coordinator.isCloudActive == false)
@@ -56,23 +56,23 @@ struct TranslationCoordinatorTests {
     @Test("privacyMode 反転 → reconcile で active==nil かつ Mock teardown 呼び出し")
     func privacyToggleTearsDown() async {
         let apple = MockTranslationProvider(providerID: "apple", isOnDevice: true)
-        let cloud = MockTranslationProvider(providerID: "deepL", isOnDevice: false)
+        let cloud = MockTranslationProvider(providerID: "geminiLive", isOnDevice: false)
         let coordinator = TranslationCoordinator(
             router: TranslationRouter(availability: MockAvailability(stub: .unsupported)),
-            keychain: MockAPIKeyChecking(keys: ["deepL"]),
+            keychain: MockAPIKeyChecking(keys: ["geminiLive"]),
             appleProvider: apple,
             makeBYO: { _ in cloud }
         )
 
         // privacy OFF → クラウド activate
-        await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.deepL], order: [.deepL]))
+        await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.geminiLive], order: [.geminiLive]))
         #expect(coordinator.hasActiveProvider == true)
         #expect(coordinator.isCloudActive == true)
         let preparedBefore = await cloud.prepareCallCount
         #expect(preparedBefore == 1)
 
         // privacy ON に反転 → reconcile 冒頭の teardown で閉じ、Gate で denied
-        await coordinator.reconcile(ctx: ctx(privacy: true, registered: [.deepL], order: [.deepL]))
+        await coordinator.reconcile(ctx: ctx(privacy: true, registered: [.geminiLive], order: [.geminiLive]))
         #expect(coordinator.hasActiveProvider == false)
         #expect(coordinator.isCloudActive == false)
         let tornDown = await cloud.teardownCallCount
@@ -164,7 +164,7 @@ struct TranslationCoordinatorTests {
     @Test("auto + Apple 未対応 + 登録済みだが key なし → Gate.missingApiKey で拒否（クラウド prepare されない）")
     func autoMissingKeyReachesGate() async {
         let apple = MockTranslationProvider(providerID: "apple", isOnDevice: true)
-        let cloud = MockTranslationProvider(providerID: "deepL", isOnDevice: false)
+        let cloud = MockTranslationProvider(providerID: "geminiLive", isOnDevice: false)
         let coordinator = TranslationCoordinator(
             router: TranslationRouter(availability: MockAvailability(stub: .unsupported)),
             keychain: MockAPIKeyChecking(keys: []),   // key なし
@@ -173,7 +173,7 @@ struct TranslationCoordinatorTests {
         )
 
         // privacy OFF なので privacyBlocksAutoCloud ではなく missingApiKey へ到達する。
-        await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.deepL], order: [.deepL]))
+        await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.geminiLive], order: [.geminiLive]))
 
         #expect(coordinator.hasActiveProvider == false)
         #expect(coordinator.isCloudActive == false)
@@ -188,12 +188,12 @@ struct TranslationCoordinatorTests {
         let apple = MockTranslationProvider(providerID: "apple", isOnDevice: true)
         let coordinator = TranslationCoordinator(
             router: TranslationRouter(availability: MockAvailability(stub: .unsupported)),
-            keychain: MockAPIKeyChecking(keys: ["deepL"]),   // key はある（Gate は allow）
+            keychain: MockAPIKeyChecking(keys: ["geminiLive"]),   // key はある（Gate は allow）
             appleProvider: apple,
             makeBYO: { _ in nil }                            // factory 未登録
         )
 
-        await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.deepL], order: [.deepL]))
+        await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.geminiLive], order: [.geminiLive]))
 
         #expect(coordinator.hasActiveProvider == false)   // appleProvider へ暗黙フォールバックしない
         #expect(coordinator.isCloudActive == false)
@@ -207,22 +207,22 @@ struct TranslationCoordinatorTests {
     @Test("prepare 中に privacy ON が完了しても旧クラウド経路は active にならない")
     func preparePreemptedByPrivacyOn() async {
         let apple = MockTranslationProvider(providerID: "apple", isOnDevice: true)
-        let blocking = BlockingTranslationProvider(providerID: "deepL", isOnDevice: false)
+        let blocking = BlockingTranslationProvider(providerID: "geminiLive", isOnDevice: false)
         let coordinator = TranslationCoordinator(
             router: TranslationRouter(availability: MockAvailability(stub: .unsupported)),
-            keychain: MockAPIKeyChecking(keys: ["deepL"]),
+            keychain: MockAPIKeyChecking(keys: ["geminiLive"]),
             appleProvider: apple,
             makeBYO: { _ in blocking }
         )
 
         // privacy OFF で reconcile 開始 → activate → blocking.prepare で停止。
         let first = Task {
-            await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.deepL], order: [.deepL]))
+            await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.geminiLive], order: [.geminiLive]))
         }
         await waitUntil { await blocking.prepareStarted }
 
         // privacy ON reconcile を完了させ、世代を進める（denied）。
-        await coordinator.reconcile(ctx: ctx(privacy: true, registered: [.deepL], order: [.deepL]))
+        await coordinator.reconcile(ctx: ctx(privacy: true, registered: [.geminiLive], order: [.geminiLive]))
         #expect(coordinator.hasActiveProvider == false)
         #expect(coordinator.statusBanner == "プライバシーモードのため自動クラウド翻訳は無効です")
 
@@ -241,17 +241,17 @@ struct TranslationCoordinatorTests {
     @Test("prepare 中に所有者が teardown() を呼ぶと復帰後も active にならない")
     func teardownDuringPrepareInvalidatesActivation() async {
         let apple = MockTranslationProvider(providerID: "apple", isOnDevice: true)
-        let blocking = BlockingTranslationProvider(providerID: "deepL", isOnDevice: false)
+        let blocking = BlockingTranslationProvider(providerID: "geminiLive", isOnDevice: false)
         let coordinator = TranslationCoordinator(
             router: TranslationRouter(availability: MockAvailability(stub: .unsupported)),
-            keychain: MockAPIKeyChecking(keys: ["deepL"]),
+            keychain: MockAPIKeyChecking(keys: ["geminiLive"]),
             appleProvider: apple,
             makeBYO: { _ in blocking }
         )
 
         // privacy OFF で reconcile 開始 → activate → blocking.prepare で停止。
         let first = Task {
-            await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.deepL], order: [.deepL]))
+            await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.geminiLive], order: [.geminiLive]))
         }
         await waitUntil { await blocking.prepareStarted }
 
@@ -274,27 +274,27 @@ struct TranslationCoordinatorTests {
     @Test("teardown suspension 中に privacy ON が完走したら、復帰した旧 reconcile はクラウドを再起動しない")
     func staleReconcileDoesNotResurrectCloudAfterPrivacyOn() async {
         let apple = MockTranslationProvider(providerID: "apple", isOnDevice: true)
-        let cloud = ControllableTeardownProvider(providerID: "deepL", isOnDevice: false)
+        let cloud = ControllableTeardownProvider(providerID: "geminiLive", isOnDevice: false)
         let coordinator = TranslationCoordinator(
             router: TranslationRouter(availability: MockAvailability(stub: .unsupported)),
-            keychain: MockAPIKeyChecking(keys: ["deepL"]),
+            keychain: MockAPIKeyChecking(keys: ["geminiLive"]),
             appleProvider: apple,
             makeBYO: { _ in cloud }
         )
 
         // 0) privacy OFF でクラウドを起動。
-        await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.deepL], order: [.deepL]))
+        await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.geminiLive], order: [.geminiLive]))
         #expect(coordinator.hasActiveProvider == true)
         #expect(coordinator.isCloudActive == true)
 
         // A) 旧 reconcile（privacy OFF のまま）を開始 → 冒頭 teardown で provider.teardown() が停止。
         let stale = Task {
-            await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.deepL], order: [.deepL]))
+            await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.geminiLive], order: [.geminiLive]))
         }
         await waitUntil { await cloud.teardownStarted }
 
         // B) その隙にユーザーが privacy ON → 新 reconcile が完走（denied）。
-        await coordinator.reconcile(ctx: ctx(privacy: true, registered: [.deepL], order: [.deepL]))
+        await coordinator.reconcile(ctx: ctx(privacy: true, registered: [.geminiLive], order: [.geminiLive]))
         #expect(coordinator.hasActiveProvider == false)
         #expect(coordinator.statusBanner == "プライバシーモードのため自動クラウド翻訳は無効です")
 

@@ -133,7 +133,6 @@ SpeakerProfileModel
   - **Apple Translation Framework（既定）** — オンデバイス・無料・ネットワーク不要。19 言語。プライバシーモードでも利用可。字幕用途に最適
   - **Gemini Live Translate（BYO key, オプション）** — WebSocket、16kHz mono Int16 PCM、70 言語超。2026-06 時点でパブリックプレビュー・約 $2.2/時とコスト高のため「実験的」扱い
   - **Google Cloud Translation API v3 NMT（BYO key, オプション）** — REST、135+ 言語、$20/100万文字。partial transcript 確定ごとに HTTP 呼び出し（往復 50–150ms）
-  - **DeepL API / DeepL Voice（BYO key, オプション）** — テキスト/ストリーミング。欧州語に強い
 - **FR-TRANS-4** API キーはユーザーが設定（BYO key モデル）。アプリは API キーを保持・課金しない
 - **FR-TRANS-5** 翻訳の ON/OFF をトグルで切替可能にすること（API コスト・プライバシー意識のため）。OFF 時は一切のクラウド送信を行わない
 - **FR-TRANS-6** ソース言語・ターゲット言語をユーザーが選択できること（Apple Translation は事前モデルダウンロードに対応）
@@ -188,7 +187,6 @@ protocol TranslationProvider: Actor {
 | Apple Translation | Primary（翻訳） | macOS 15+ | オンデバイス・無料・19 言語 |
 | Gemini Live Translate | Optional（翻訳, BYO key） | プレビュー | 70+ 言語・WebSocket・約 $2.2/時 |
 | Google Cloud Translation v3 | Optional（翻訳, BYO key） | 安定版 | 135+ 言語・REST・$20/100万文字 |
-| DeepL API / Voice | Optional（翻訳, BYO key） | 安定版 | 欧州語に強い・$5.49/100万文字 |
 
 ### コンポーネント一覧
 
@@ -198,7 +196,7 @@ protocol TranslationProvider: Actor {
 | 文字起こし | WhisperKit v1.0 (`argmax-oss-swift`) | Core ML / ANE 最適化、日本語対応（オンデバイス） |
 | 話者分離 | **FluidAudio（推奨）** / SpeakerKit (Pyannote v4 Core ML) | オンデバイス diarization + 声紋 embedding 取得 |
 | 声紋永続化 | SwiftData + vDSP コサイン類似度 | セッション間話者認識の核心（オンデバイス） |
-| **リアルタイム翻訳 (optional)** | **Apple Translation（既定・オンデバイス）/ Gemini Live Translate / Google Cloud Translation v3 / DeepL（BYO key）** | `TranslationProvider` で抽象化、字幕表示 |
+| **リアルタイム翻訳 (optional)** | **Apple Translation（既定・オンデバイス）/ Gemini Live Translate / Google Cloud Translation v3（BYO key）** | `TranslationProvider` で抽象化、字幕表示。DeepL は spec.md D-18 で撤去済み |
 | データ永続化 | SwiftData (SQLite) | セッション管理 |
 | UI | SwiftUI | macOS ネイティブ |
 | 後処理 (optional, **将来**) | OpenAI 互換 / Gemini Flash エンドポイント | 要約・アクション抽出等は当面スコープ外（§7 参照） |
