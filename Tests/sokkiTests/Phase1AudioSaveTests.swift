@@ -232,4 +232,37 @@ struct SessionManagerPhase1Tests {
         let remaining = try await manager.sessionCount()
         #expect(remaining == 0)
     }
+
+    @Test("deleteSession(.both): primary と `_system` 派生ファイルの両方が削除される")
+    func deleteSessionRemovesBothLaneFiles() async throws {
+        let manager = try makeManager()
+        let sessionID = try await manager.createSession(title: "deleteBothTest", mode: .both)
+        let primaryURL = try #require(await manager.audioURL(forSessionID: sessionID))
+        let systemURL = AudioCaptureManager.systemFileURL(forPrimary: primaryURL)
+        defer {
+            try? FileManager.default.removeItem(at: primaryURL)
+            try? FileManager.default.removeItem(at: systemURL)
+        }
+
+        // Both モード相当に 2 ファイルを書き出す（primary=mic / `_system`=system）。
+        let format = make16kMonoFormat()
+        let micWriter = try AudioFileWriter(url: primaryURL, processingFormat: format)
+        micWriter.write(makeSilentBuffer(format: format, frameCount: 16000))
+        micWriter.close()
+        let systemWriter = try AudioFileWriter(url: systemURL, processingFormat: format)
+        systemWriter.write(makeSilentBuffer(format: format, frameCount: 8000))
+        systemWriter.close()
+        #expect(FileManager.default.fileExists(atPath: primaryURL.path))
+        #expect(FileManager.default.fileExists(atPath: systemURL.path))
+
+        let snapshots = try await manager.allSessionSnapshots()
+        let snap = try #require(snapshots.first)
+
+        try await manager.deleteSession(snap.id)
+
+        #expect(!FileManager.default.fileExists(atPath: primaryURL.path))
+        #expect(!FileManager.default.fileExists(atPath: systemURL.path))
+        let remaining = try await manager.sessionCount()
+        #expect(remaining == 0)
+    }
 }
