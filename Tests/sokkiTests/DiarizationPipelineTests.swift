@@ -123,6 +123,33 @@ struct DiarizationPipelineTests {
         #expect(segments[0].speakerProfile?.id != segments[1].speakerProfile?.id)
     }
 
+    @Test("合計交差が最大の話者が割り当てられる（単一最大交差とは異なるケース / TASK-26）")
+    func assignsBySummedOverlapNotSingleMax() async throws {
+        let container = try makeContainer()
+        let embA = makeNormalizedEmbedding(seed: 1.0)
+        let embB = makeNormalizedEmbedding(seed: 50.0)
+        // 文字起こし [0,10] に対し S1 は 1 区間で交差 4.0、S2 は 2 区間で交差 3.0+3.0=6.0。
+        // 単一最大交差方式（TASK-25）なら S1 だが、WhisperX 方式では合計最大の S2 が選ばれる。
+        let mock = MockDiarizationEngine(
+            result: makeResult([
+                ("S1", 0, 4, embA),
+                ("S2", 4, 7, embB),
+                ("S2", 7, 10, embB),
+            ])
+        )
+        let (pipeline, sessionManager, _) = makePipeline(container: container, diarization: mock)
+
+        let sid = try await sessionManager.createSession(title: "会議", mode: .micOnly)
+        try await sessionManager.appendSegment(MockSegment(text: "a", start: 0, end: 10), toSessionID: sid)
+
+        try await pipeline.applyDiarization(audioSamples: [0], sessionID: sid)
+
+        let segments = try fetchSegments(container)
+        #expect(segments.count == 1)
+        #expect(segments.first?.speakerLabel == "S2")
+        #expect(segments.first?.speakerProfile != nil)
+    }
+
     @Test("2 回目の録音で同一 embedding が同一プロファイルに解決され EMA 更新される")
     func reusesProfileAcrossRecordings() async throws {
         let container = try makeContainer()
