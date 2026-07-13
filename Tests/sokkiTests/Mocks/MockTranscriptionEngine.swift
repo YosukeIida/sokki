@@ -24,6 +24,8 @@ actor MockTranscriptionEngine: TranscriptionEngine {
     var prepareCallCount = 0
     var transcribeCallCount = 0
     var stubbedSegments: [any TranscriptionSegment] = [MockSegment(text: "テストテキスト")]
+    /// `transcribeStream` が順に yield するアップデート列。既定は空。
+    var stubbedStreamUpdates: [TranscriptionStreamUpdate] = []
     var stubbedProgressPhases: [TranscriptionEngineLoadPhase] = []
     var shouldThrowOnPrepare = false
     var shouldThrowOnTranscribe = false
@@ -49,11 +51,14 @@ actor MockTranscriptionEngine: TranscriptionEngine {
 
     func transcribeStream(
         audioChunks: AsyncStream<AudioChunk>
-    ) -> AsyncThrowingStream<any TranscriptionSegment, Error> {
-        AsyncThrowingStream { continuation in
+    ) -> AsyncThrowingStream<TranscriptionStreamUpdate, Error> {
+        let updates = stubbedStreamUpdates
+        return AsyncThrowingStream { continuation in
             Task {
-                for seg in stubbedSegments {
-                    continuation.yield(seg)
+                // 入力チャンクは消費するが、内容には依存せずスタブ列を順に流す。
+                for await _ in audioChunks {}
+                for update in updates {
+                    continuation.yield(update)
                 }
                 continuation.finish()
             }

@@ -8,6 +8,61 @@ public protocol TranscriptionSegment: Sendable {
     var avgLogProb: Float { get }
 }
 
+/// 確定セグメントの Sendable な値スナップショット。
+/// actor 境界（WhisperKitEngine actor → @MainActor Pipeline）を越えて渡すために使う。
+public struct TranscriptionSegmentSnapshot: TranscriptionSegment {
+    public let start: TimeInterval
+    public let end: TimeInterval
+    public let text: String
+    public let isConfirmed: Bool
+    public let avgLogProb: Float
+
+    public init(
+        start: TimeInterval,
+        end: TimeInterval,
+        text: String,
+        isConfirmed: Bool = true,
+        avgLogProb: Float = 0
+    ) {
+        self.start = start
+        self.end = end
+        self.text = text
+        self.isConfirmed = isConfirmed
+        self.avgLogProb = avgLogProb
+    }
+}
+
+/// ストリーミング文字起こしの1回分のアップデート。
+///
+/// - `newlyConfirmed`: このアップデートで新たに確定したセグメント。UI 末尾に追記し、
+///   そのまま SwiftData に永続化する（一度だけ emit される）。
+/// - `hypothesis`: 現在の未確定テキスト。毎回まるごと置換する（空文字は hypothesis のクリア）。
+///
+/// WhisperKit の `AudioStreamTranscriber.State`（confirmedSegments / unconfirmedSegments）を
+/// 差分ベースの Sendable 値型に落とし込んだもの。
+public struct TranscriptionStreamUpdate: Sendable, Equatable {
+    public var newlyConfirmed: [TranscriptionSegmentSnapshot]
+    public var hypothesis: String
+
+    public init(
+        newlyConfirmed: [TranscriptionSegmentSnapshot] = [],
+        hypothesis: String = ""
+    ) {
+        self.newlyConfirmed = newlyConfirmed
+        self.hypothesis = hypothesis
+    }
+}
+
+extension TranscriptionSegmentSnapshot: Equatable {
+    public static func == (lhs: TranscriptionSegmentSnapshot, rhs: TranscriptionSegmentSnapshot) -> Bool {
+        lhs.start == rhs.start
+            && lhs.end == rhs.end
+            && lhs.text == rhs.text
+            && lhs.isConfirmed == rhs.isConfirmed
+            && lhs.avgLogProb == rhs.avgLogProb
+    }
+}
+
 /// モデル準備（ダウンロード〜メモリロード）の進捗フェーズ。
 public enum TranscriptionEngineLoadPhase: Sendable, Equatable {
     /// モデルファイルのダウンロード中。`fractionCompleted` は 0...1。
@@ -22,7 +77,7 @@ public protocol TranscriptionEngine: Actor {
     func transcribe(audioArray: [Float]) async throws -> [any TranscriptionSegment]
     func transcribeStream(
         audioChunks: AsyncStream<AudioChunk>
-    ) -> AsyncThrowingStream<any TranscriptionSegment, Error>
+    ) -> AsyncThrowingStream<TranscriptionStreamUpdate, Error>
     /// 文字起こし言語を設定する。AppSettingsModel.transcriptionLanguage の値（"auto" / "ja" / ... ）をそのまま渡す。
     /// "auto" または nil の場合は自動検出。デフォルト実装は何もしない（既存 conformer のソース互換性を保つ）。
     func setTranscriptionLanguage(_ settingValue: String?) async
