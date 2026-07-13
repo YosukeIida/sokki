@@ -15,6 +15,8 @@ actor WhisperKitEngine: TranscriptionEngine {
     private var whisperKit: WhisperKit?
     // nil = デバイスに合った推奨モデルを自動選択
     private let modelVariant: String?
+    // AppSettingsModel.transcriptionLanguage の値。nil/"auto" = 自動検出。
+    private var languageSetting: String?
 
     private(set) var isReady = false
 
@@ -53,10 +55,15 @@ actor WhisperKitEngine: TranscriptionEngine {
         }
     }
 
+    func setTranscriptionLanguage(_ settingValue: String?) async {
+        languageSetting = settingValue
+    }
+
     func transcribe(audioArray: [Float]) async throws -> [any TranscriptionSegment] {
         guard let wk = whisperKit else { throw TranscriptionEngineError.notPrepared }
 
-        let results: [TranscriptionResult] = try await wk.transcribe(audioArray: audioArray)
+        let decodeOptions = makeWhisperDecodingOptions(languageSetting: languageSetting)
+        let results: [TranscriptionResult] = try await wk.transcribe(audioArray: audioArray, decodeOptions: decodeOptions)
         return results.flatMap(\.segments).compactMap { seg in
             let text = cleanText(seg.text)
             guard !text.isEmpty else { return nil }
@@ -162,7 +169,9 @@ actor WhisperKitEngine: TranscriptionEngine {
     private func decodeSegments(_ samples: [Float], clipStart: Float, isFinal: Bool = false) async throws -> [DecodedSegment] {
         guard let wk = whisperKit else { throw TranscriptionEngineError.notPrepared }
 
-        var options = DecodingOptions()
+        // バッチ経路（transcribe(audioArray:)）と同様に言語設定を反映する。
+        // ここを素の DecodingOptions() にすると「言語設定がバッチには効くがリアルタイムには効かない」不整合になる。
+        var options = makeWhisperDecodingOptions(languageSetting: languageSetting)
         options.clipTimestamps = [clipStart]
         if isFinal {
             options.windowClipTime = 0

@@ -1,10 +1,10 @@
 ---
 id: TASK-31
 title: 日本語DER・声紋閾値の実測
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-11 16:37'
-updated_date: '2026-07-11 16:38'
+updated_date: '2026-07-12 23:19'
 labels:
   - Phase3
   - test
@@ -27,3 +27,13 @@ ordinal: 31000
 - [ ] #1 日本語音声でDERを計測し、Sortformer/Pyannoteの実績値と比較する
 - [ ] #2 声紋閾値 0.82 の妥当性を検証し、requirements.mdのOpen Questionを閉じる
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: claude
+created: 2026-07-12 23:19
+---
+ハーネス実装完了・PR #90 マージ可能判定（opus・Fable レビュー・マージ順 #87系→#90）。DER 計算器（NIST 定義・collar・最適マッピング）+ RTTM/TSV パーサ + 環境変数ゲート付き計測テスト + docs/diarization-benchmark.md、96テスト。実測（ユーザー）: 日本語音声で DER 取得し requirements.md の Open Question をクローズ。マージ後: Done 化 + Issue #50 クローズ（実測完了時）。
+---
+<!-- COMMENTS:END -->
