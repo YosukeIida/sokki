@@ -12,6 +12,10 @@ struct SegmentTimeRange: Sendable, Equatable {
 enum AudioPlaybackError: Error, Sendable {
     /// `AVAudioPlayer.play()` が `false` を返した（オーディオ出力の確保に失敗した等）。
     case playFailed
+    /// `audioPlayerDecodeErrorDidOccur` が `error == nil` で通知した場合のフォールバック。
+    /// （デリゲート引数は `Error?` のため、`nil` でも「デコード失敗した」事実は失われない
+    /// ようにする）。
+    case decodeFailed
 }
 
 /// 保存済み音声ファイルの再生を担当するコントローラ（FR-DATA-3 / TASK-33）。
@@ -183,7 +187,9 @@ extension AudioPlaybackController: AVAudioPlayerDelegate {
                   ObjectIdentifier(current) == notifiedPlayerID else { return }
             self.isPlaying = false
             self.stopTimer()
-            self.playbackError = error
+            // error が nil で通知された場合も「デコードに失敗して停止した」事実を
+            // playbackError == nil で握りつぶさないよう、フォールバックエラーを設定する。
+            self.playbackError = error ?? AudioPlaybackError.decodeFailed
         }
     }
 }

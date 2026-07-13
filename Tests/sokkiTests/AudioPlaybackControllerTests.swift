@@ -234,6 +234,26 @@ struct AudioPlaybackControllerDelegateTests {
         #expect(controller.playbackError != nil)
     }
 
+    @Test("audioPlayerDecodeErrorDidOccur: error=nil で通知されても playbackError は nil のままにならない")
+    func decodeErrorWithNilErrorStillSetsPlaybackError() async throws {
+        let url = try makeSilentWavFile(seconds: 0.5)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let controller = AudioPlaybackController()
+        controller.load(url: url)
+        controller.play()
+        #expect(controller.isPlaying == true)
+
+        let currentPlayer = try #require(controller.player)
+        controller.audioPlayerDecodeErrorDidOccur(currentPlayer, error: nil)
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(controller.isPlaying == false)
+        // error == nil で通知されても「デコードに失敗して停止した」事実が
+        // playbackError == nil で握りつぶされてはいけない。
+        #expect(controller.playbackError != nil)
+    }
+
     @Test("audioPlayerDecodeErrorDidOccur: 現在保持していない player からの通知は無視される")
     func decodeErrorFromForeignPlayerIsIgnored() async throws {
         let url = try makeSilentWavFile(seconds: 0.5)
