@@ -14,6 +14,12 @@ final class MockSystemAudioTap: SystemAudioTapping, @unchecked Sendable {
     private var _startCount = 0
     private var _stopCount = 0
     private var _errorToThrow: SystemAudioTapError?
+    /// Both モードの起動／停止順序を検証するための共有ログ（任意）。
+    private let callLog: CaptureCallLog?
+
+    init(log: CaptureCallLog? = nil) {
+        self.callLog = log
+    }
 
     var startCount: Int { lock.lock(); defer { lock.unlock() }; return _startCount }
     var stopCount: Int { lock.lock(); defer { lock.unlock() }; return _stopCount }
@@ -35,15 +41,18 @@ final class MockSystemAudioTap: SystemAudioTapping, @unchecked Sendable {
         if error == nil {
             self.onSamples = onSamples
             _startCount += 1
+            callLog?.record(.systemStart)
         }
         lock.unlock()
         if let error { throw error }
     }
 
     func stop() {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         onSamples = nil
         _stopCount += 1
+        callLog?.record(.systemStop)
+        lock.unlock()
     }
 
     /// テストからサンプルを注入する（実装の IO キュー相当）。
@@ -298,14 +307,6 @@ struct SystemAudioCaptureTests {
         #expect(chunk?.samples.count == 3)
 
         await manager.stopCapture()
-    }
-
-    @Test("回帰: .both は引き続き明確なエラーを throw する")
-    func bothModeStillThrows() async {
-        let manager = AudioCaptureManager(systemTap: MockSystemAudioTap())
-        await #expect(throws: AudioCaptureManager.CaptureError.self) {
-            try await manager.startCapture(mode: .both)
-        }
     }
 
     @Test("回帰: 停止後に遅延実行された旧世代の chunk は新 systemStream に混入しない")

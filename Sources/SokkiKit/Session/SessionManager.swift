@@ -81,6 +81,12 @@ actor SessionManager {
         guard let session = try modelContext.fetch(descriptor).first else { return }
         if let audioFileURL = session.audioFileURL {
             try? FileManager.default.removeItem(at: audioFileURL)
+            // Both モード（TASK-12）は system レーンを `_system` 派生ファイルに別保存するため、
+            // 主ファイルと合わせて削除する（孤児ファイルを残さない）。
+            if session.captureMode == AudioCaptureManager.CaptureMode.both.rawValue {
+                let systemURL = AudioCaptureManager.systemFileURL(forPrimary: audioFileURL)
+                try? FileManager.default.removeItem(at: systemURL)
+            }
         }
         modelContext.delete(session)
         try modelContext.save()

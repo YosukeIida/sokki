@@ -15,6 +15,8 @@ actor WhisperKitEngine: TranscriptionEngine {
     private var whisperKit: WhisperKit?
     // nil = デバイスに合った推奨モデルを自動選択
     private let modelVariant: String?
+    // AppSettingsModel.transcriptionLanguage の値。nil/"auto" = 自動検出。
+    private var languageSetting: String?
 
     private(set) var isReady = false
 
@@ -53,10 +55,15 @@ actor WhisperKitEngine: TranscriptionEngine {
         }
     }
 
+    func setTranscriptionLanguage(_ settingValue: String?) async {
+        languageSetting = settingValue
+    }
+
     func transcribe(audioArray: [Float]) async throws -> [any TranscriptionSegment] {
         guard let wk = whisperKit else { throw TranscriptionEngineError.notPrepared }
 
-        let results: [TranscriptionResult] = try await wk.transcribe(audioArray: audioArray)
+        let decodeOptions = makeWhisperDecodingOptions(languageSetting: languageSetting)
+        let results: [TranscriptionResult] = try await wk.transcribe(audioArray: audioArray, decodeOptions: decodeOptions)
         return results.flatMap(\.segments).compactMap { seg in
             let text = cleanText(seg.text)
             guard !text.isEmpty else { return nil }
@@ -139,7 +146,7 @@ actor WhisperKitEngine: TranscriptionEngine {
                         let finalBuffer = await accumulator.snapshot()
                         let decoded = finalBuffer.isEmpty
                             ? []
-                            : try await decodeSegments(finalBuffer, clipStart: tracker.lastConfirmedEnd)
+                            : try await decodeSegments(finalBuffer, clipStart: tracker.lastConfirmedEnd, isFinal: true)
                         continuation.yield(tracker.flush(decoded))
                     }
                     continuation.finish()
@@ -155,11 +162,20 @@ actor WhisperKitEngine: TranscriptionEngine {
     }
 
     /// 指定した秒位置 `clipStart` から末尾までを再デコードし、境界ロジック用の生セグメント列を返す。
-    private func decodeSegments(_ samples: [Float], clipStart: Float) async throws -> [DecodedSegment] {
+    ///
+    /// - Parameter isFinal: 停止時の最終 flush デコードなら `true`。WhisperKit の既定 `windowClipTime`（1.0 秒）は
+    ///   ハルシネーション抑止のためクリップ末尾 1 秒をデコードから除外するが、最終 flush ではそれをすると
+    ///   録音末尾の 1 秒未満の tail が二度とデコードされず取りこぼす。最終 flush のみ `windowClipTime = 0` にして末尾まで拾う。
+    private func decodeSegments(_ samples: [Float], clipStart: Float, isFinal: Bool = false) async throws -> [DecodedSegment] {
         guard let wk = whisperKit else { throw TranscriptionEngineError.notPrepared }
 
-        var options = DecodingOptions()
+        // バッチ経路（transcribe(audioArray:)）と同様に言語設定を反映する。
+        // ここを素の DecodingOptions() にすると「言語設定がバッチには効くがリアルタイムには効かない」不整合になる。
+        var options = makeWhisperDecodingOptions(languageSetting: languageSetting)
         options.clipTimestamps = [clipStart]
+        if isFinal {
+            options.windowClipTime = 0
+        }
 
         let results = try await wk.transcribe(audioArray: samples, decodeOptions: options)
         return results.flatMap(\.segments).map { seg in

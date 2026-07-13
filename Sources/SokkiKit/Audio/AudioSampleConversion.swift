@@ -56,6 +56,25 @@ enum AudioSampleConversion {
         return Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
     }
 
+    /// 16kHz mono の `[Float]` を `targetFormat` の `AVAudioPCMBuffer` へ復元する。
+    /// 録音ファイル書き出し（`AudioFileWriter`）は `AVAudioPCMBuffer` を要求するため、
+    /// アクター境界を越えてきた `[Float]`（既に 16kHz mono 変換済み）を無損失で包み直す。
+    static func makeBuffer(from samples: [Float]) -> AVAudioPCMBuffer? {
+        guard !samples.isEmpty else { return nil }
+        let format = makeTargetFormat()
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(samples.count)
+        ) else { return nil }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        guard let channel = buffer.floatChannelData?[0] else { return nil }
+        samples.withUnsafeBufferPointer { source in
+            guard let base = source.baseAddress else { return }
+            channel.update(from: base, count: samples.count)
+        }
+        return buffer
+    }
+
     /// dBFS RMS レベル（-60...0）。無音・空配列は -60 を返す。
     static func rmsLevel(_ samples: [Float]) -> Float {
         guard !samples.isEmpty else { return -60 }
