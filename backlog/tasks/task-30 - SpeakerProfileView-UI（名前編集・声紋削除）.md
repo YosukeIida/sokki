@@ -1,10 +1,10 @@
 ---
 id: TASK-30
 title: SpeakerProfileView UI（名前編集・声紋削除）
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-07-11 16:37'
-updated_date: '2026-07-11 16:38'
+updated_date: '2026-07-12 22:57'
 labels:
   - Phase3
 milestone: m-3
@@ -25,3 +25,13 @@ ordinal: 30000
 <!-- AC:BEGIN -->
 - [ ] #1 プロファイル一覧・名前編集・出現回数・削除ができること
 <!-- AC:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: claude
+created: 2026-07-12 22:57
+---
+実装完了・PR #83 マージ可能判定（sonnet 実装・Fable レビュー・マージ順 #68→#77→#78→#83）。インライン名前編集・削除 UI 配線（.nullify 検証付き）・出現回数/最終出現表示・SpeakerColorBar 再利用、70テスト。実機検証（ユーザー）: RenderPreview での見た目。マージ後: Done 化 + Issue #49 クローズ。
+---
+<!-- COMMENTS:END -->

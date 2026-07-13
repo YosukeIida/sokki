@@ -73,8 +73,14 @@ final class TranscriptionPipeline {
         self.sessionManager = sessionManager
     }
 
-    func start(mode: AudioCaptureManager.CaptureMode, sessionTitle: String) async throws {
+    func start(
+        mode: AudioCaptureManager.CaptureMode,
+        sessionTitle: String,
+        transcriptionLanguage: String? = nil
+    ) async throws {
         guard !isRunning else { return }
+
+        await transcriptionEngine.setTranscriptionLanguage(transcriptionLanguage)
 
         if await !transcriptionEngine.isReady {
             isLoading = true
