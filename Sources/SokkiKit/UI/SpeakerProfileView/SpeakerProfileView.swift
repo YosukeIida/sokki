@@ -21,6 +21,7 @@ struct SpeakerProfileView: View {
     @State private var editingProfileID: UUID?
     @State private var editingName = ""
     @State private var profileToDelete: SpeakerProfileModel?
+    @State private var errorMessage: String?
 
     var body: some View {
         List {
@@ -62,6 +63,17 @@ struct SpeakerProfileView: View {
         } message: {
             Text("声紋データが削除されます。この話者に紐づく発話記録は残りますが、話者名は表示されなくなります。")
         }
+        .alert(
+            "エラー",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { isPresented in if !isPresented { errorMessage = nil } }
+            )
+        ) {
+            Button("OK") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 
     private var isDeleteConfirmationPresented: Binding<Bool> {
@@ -88,8 +100,13 @@ struct SpeakerProfileView: View {
         let trimmed = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
         cancelEdit()
         guard !trimmed.isEmpty else { return }
+        let profileID = profile.id
         Task {
-            try? await deps.speakerProfileStore.rename(profileID: profile.id, to: trimmed)
+            do {
+                try await deps.speakerProfileStore.rename(profileID: profileID, to: trimmed)
+            } catch {
+                errorMessage = "名前の変更に失敗しました: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -97,7 +114,11 @@ struct SpeakerProfileView: View {
         profileToDelete = nil
         let profileID = profile.id
         Task {
-            try? await deps.speakerProfileStore.deleteProfile(profileID)
+            do {
+                try await deps.speakerProfileStore.deleteProfile(profileID)
+            } catch {
+                errorMessage = "削除に失敗しました: \(error.localizedDescription)"
+            }
         }
     }
 }
@@ -142,7 +163,10 @@ private struct SpeakerProfileRow: View {
                     Text(profile.displayName)
                         .font(.headline)
                     HStack(spacing: 6) {
-                        Text("検出 \(profile.embeddingCount) 回")
+                        // embeddingCount は resolveProfiles 呼び出し（= 1 セッション）ごとに 1 回だけ
+                        // 加算される（発話セグメント数ではない）。spec.md の「過去セッション出現回数」・
+                        // docs/design/speaker-profile-v1.html の「N セッション」表記に合わせる。
+                        Text("\(profile.embeddingCount) セッション")
                         Text("·")
                         Text("最終出現: ")
                         Text(profile.lastSeenAt, format: .dateTime.month().day())
