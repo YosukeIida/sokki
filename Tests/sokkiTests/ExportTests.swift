@@ -101,7 +101,13 @@ struct ExportTests {
         }
     }
 
-    @Test("ExportService.export(session:format:) が保存UIの配線どおり形式別の出力を返す")
+    // 注意: このテストは ExportService の形式別ディスパッチのみを検証する。
+    // SessionDetailView.saveToFile(format:) → ExportSaveService.save(...) の
+    // 実際の呼び出し配線（NSSavePanel 経由）は Tests/sokkiUITests/SokkiUITests.swift の
+    // testExportSaveDialogAppears でカバーする（ExportSaveService が @MainActor かつ
+    // NSSavePanel に依存するため、SessionDetailView 側のモック化にはこの PR のスコープを
+    // 超える DI 導入が必要）。
+    @Test("ExportService.export(session:format:) が形式別に正しい Exporter へディスパッチする")
     func exportServiceDispatchesToCorrectFormat() {
         let service = ExportService()
         let session = SessionModel(title: "Wiring", audioFilePath: "", captureMode: "mic")
