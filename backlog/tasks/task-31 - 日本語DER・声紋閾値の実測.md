@@ -1,10 +1,10 @@
 ---
 id: TASK-31
 title: 日本語DER・声紋閾値の実測
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-11 16:37'
-updated_date: '2026-07-12 23:19'
+updated_date: '2026-07-13 13:53'
 labels:
   - Phase3
   - test
@@ -27,6 +27,12 @@ ordinal: 31000
 - [ ] #1 日本語音声でDERを計測し、Sortformer/Pyannoteの実績値と比較する
 - [ ] #2 声紋閾値 0.82 の妥当性を検証し、requirements.mdのOpen Questionを閉じる
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+finalSummary: DER 計測ハーネス（DERCalculator + RTTMParser）と実測手順書 docs/diarization-benchmark.md を追加。codex レビューで実バグ修正（同一話者重複区間の二重計上による負の confusion → Set 一意化）+ RTTM 不正入力のエラー化（NaN/Inf/dur<=0）+ 閾値材料を DER 最適マッピングでリファレンス話者へ読み替え。貪欲マッピング（>8話者非最適）と分母0時 DER=0 は文書化済み設計判断として維持。PR #90 マージ済み（2026-07-13）。実機検証: 日本語実データでの DER 実測（docs 手順・doc-1）。
+<!-- SECTION:NOTES:END -->
 
 ## Comments
 

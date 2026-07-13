@@ -1,10 +1,10 @@
 ---
 id: TASK-30
 title: SpeakerProfileView UI（名前編集・声紋削除）
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-11 16:37'
-updated_date: '2026-07-12 22:57'
+updated_date: '2026-07-13 13:42'
 labels:
   - Phase3
 milestone: m-3
@@ -25,6 +25,12 @@ ordinal: 30000
 <!-- AC:BEGIN -->
 - [ ] #1 プロファイル一覧・名前編集・出現回数・削除ができること
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+finalSummary: SpeakerProfileView に名前編集・削除・出現セッション数表示を追加。codex レビューで MAJOR 1件修正（rename/delete のエラー握りつぶし → do/catch + errorMessage + .alert、RecordingView の既存規約に統一）+ MINOR 1件修正（「検出 N 回」→「N セッション」、spec.md/design mock と整合）。削除 UI は採番ロジックに触れず TASK-44 を悪化させないことを確認。PR #83 マージ済み（2026-07-13）。**注意: 本マージで TASK-44（採番衝突）が実害化可能に — 優先度引き上げを推奨**。実機検証: UI 目視（doc-1）。
+<!-- SECTION:NOTES:END -->
 
 ## Comments
 

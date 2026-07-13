@@ -1,10 +1,10 @@
 ---
 id: TASK-12
 title: Bothモード（マイク + システム同時）
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-11 16:35'
-updated_date: '2026-07-12 22:58'
+updated_date: '2026-07-13 11:24'
 labels:
   - Phase2
 milestone: m-1
@@ -27,6 +27,12 @@ ordinal: 12000
 - [ ] #1 起動順system先→mic後、停止は逆順で実装されていること
 - [ ] #2 micとsystemの音声が2ファイルに別々保存されること
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+finalSummary: Both モード（マイク+システム同時録音・2ファイル保存）を実装。MicrophoneCapture/AudioStreamMerge 新規 + AudioCaptureManager 統合、primary(mic)/_system の2ファイル保存、SessionManager.deleteSession への削除一元化（UUID 経由で actor 再 fetch、@Model 境界規約準拠）。codex レビューは移送3系統で APPROVE: 時間軸2倍化・順序非決定性（PR 明記の MVP 近似）→ TASK-26 引き継ぎ、起動失敗時 session 残留（全モード共通既存）→ TASK-49/#102。2ファイルは別 writer + NSLock 直列化で並行書き込み競合なしを確認。PR #81 マージ済み（2026-07-13）。実機検証: 2系統同時録音の2ファイル生成。
+<!-- SECTION:NOTES:END -->
 
 ## Comments
 

@@ -1,10 +1,10 @@
 ---
 id: TASK-41
 title: 文字起こし言語設定を追加
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-12 12:20'
-updated_date: '2026-07-12 22:05'
+updated_date: '2026-07-13 09:29'
 labels:
   - Phase1
 milestone: m-0
@@ -31,6 +31,12 @@ WhisperKitの DecodingOptions.language（および必要なら detectLanguage）
 - [ ] #2 選択した言語が AppSettingsModel に永続化されること
 - [ ] #3 WhisperKitEngine が設定された言語を DecodingOptions 経由で WhisperKit に渡し、日本語固定時に実際に日本語として文字起こされること
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+finalSummary: 文字起こし言語設定（自動検出/ja/en/zh/ko/es/de/fr）を追加。TranscriptionLanguage 値型 + AppSettingsModel 永続化 + SettingsView UI + TranscriptionEngine protocol に setTranscriptionLanguage（デフォルト no-op でソース互換）+ WhisperKitEngine で DecodingOptions(language:detectLanguage:) 配線。WhisperKit は language: nil だけでは en 固定のため detectLanguage 明示が核心。codex レビュー APPROVE（MINOR 2件: 伝播回帰テストは TASK-45/#97 へ移送、protocol 契約の型付き化は #82 レビューで判断）。PR #72 マージ済み（2026-07-13）。実機検証（日本語固定→日本語認識）はユーザー実施項目。
+<!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

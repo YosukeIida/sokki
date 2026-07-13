@@ -1,10 +1,10 @@
 ---
 id: TASK-17
 title: TranslationProvider protocol + ルーティング層
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-11 16:35'
-updated_date: '2026-07-12 22:13'
+updated_date: '2026-07-13 16:47'
 labels:
   - Phase2.5
 milestone: m-2
@@ -27,6 +27,12 @@ protocol（isOnDevice / supports(source:target:) / translateStream）とTranslat
 - [ ] #1 TranslationProvider protocol（isOnDevice / supports(source:target:) / translateStream）が定義されていること
 - [ ] #2 TranslationCoordinatorがTier1 Apple→Tier2 BYOの自動ルーティングとプライバシーゲートを実装していること
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+finalSummary: TranslationProvider protocol + ルーティング層（TranslationRouter/TranslationCoordinator/TranslationGate/AvailabilityCache）を実装。Apple オンデバイス既定 / BYO API 代替のハイブリッド方針の基盤。codex レビュー（effort=high）で BLOCKER 2件修正: 世代奪還レース（requestSeq 化・修正前 fail の回帰テスト付き）+ prepare 中 provider の即時 close。pump 所有権・Gate 監査タグ（DI 誤注入の fail-closed 化）も修正。残余（appleProvider lease 化・overlapping teardown 契約・isCloudActive 更新順序）は real provider 結線の前提条件として TASK-18 に申し送り済み — ユーザー音声のクラウド送信ゼロ保証自体は破れないことを検証済み。PR #70 マージ済み（2026-07-14）。
+<!-- SECTION:NOTES:END -->
 
 ## Comments
 

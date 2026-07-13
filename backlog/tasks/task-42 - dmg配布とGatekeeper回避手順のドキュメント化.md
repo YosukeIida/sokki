@@ -1,10 +1,10 @@
 ---
 id: TASK-42
 title: dmg配布とGatekeeper回避手順のドキュメント化
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-12 19:01'
-updated_date: '2026-07-12 21:55'
+updated_date: '2026-07-13 09:10'
 labels:
   - Phase2
   - infra
@@ -30,6 +30,12 @@ Homebrew Cask 配布（TASK-37）は Developer ID 取得後の話として据え
 - [ ] #1 GitHub Releases から sokki.app を含む dmg をダウンロード・配布できる状態にする（ビルド→dmg作成手順を整備）
 - [ ] #2 無署名アプリ実行時の Gatekeeper 警告と回避手順（システム設定からの許可 or xattr -d com.apple.quarantine 等）を README ないし配布ドキュメントに記載する
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+finalSummary: scripts/make-dmg.sh（xcodebuild Release 無署名ビルド → hdiutil dmg 化、--adhoc-sign/--dry-run 等対応・外部ツール非依存）、docs/distribution.md（dmg ビルド・GitHub Releases 公開・Gatekeeper 回避手順 macOS 15/26 両対応）、README.md 新規作成。実機で dmg 生成・マウント・codesign 検証済み（無署名ビルドに entitlements 非埋め込みを実証）。司令塔レビュー APPROVE（MINOR: README テスト件数の固定値を削除済み）。PR #71 マージ済み（2026-07-13）。
+<!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

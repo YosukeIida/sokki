@@ -1,10 +1,10 @@
 ---
 id: TASK-21
 title: GeminiLiveTranslateClient（BYO key・実験的）
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-11 16:36'
-updated_date: '2026-07-12 23:03'
+updated_date: '2026-07-13 16:52'
 labels:
   - Phase2.5
 milestone: m-2
@@ -27,6 +27,12 @@ URLSessionWebSocketTask + PCMConverter（Float32→Int16）を実装する。字
 - [ ] #2 input/outputAudioTranscriptionから字幕が取得できること
 - [ ] #3 UI上で「実験的機能（プレビュー）」と明示されていること
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+finalSummary: GeminiLiveTranslateClient（BYO・実験的・WebSocket）+ PCMConverter を実装。codex レビューで BLOCKER 修正: 既定モデル gemini-2.0-flash-live-001 は 2025-12-09 廃止済み → gemini-3.5-live-translate-preview + 公式スキーマ（translationConfig）に再構築（公式ドキュメント裏付け）。turnComplete 単独フレームのハング・BYO キー漏洩（NSError userInfo の ?key= redact）も修正。setup タイムアウト・マルチターン対応は UI 未到達の実験的コードのため TASK-57/#110 へ移送。PR #86 マージ済み（2026-07-14）。実機検証: BYO キーでの実 API 接続。
+<!-- SECTION:NOTES:END -->
 
 ## Comments
 
