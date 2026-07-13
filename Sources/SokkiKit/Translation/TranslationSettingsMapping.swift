@@ -10,7 +10,9 @@ public struct TranslationSettingsSnapshot: Sendable, Equatable {
     /// `TranslationProviderKind.rawValue`。不正な値は `TranslationSettingsMapper` が
     /// `.auto` にフォールバックする。
     public let translationProvider: String
-    /// BCP-47 相当の言語コード。`"auto"` は「文字起こし言語に追従」を意味する特別値。
+    /// BCP-47 相当の言語コード。`"auto"` は将来「文字起こし言語に追従」させる想定の予約値だが、
+    /// 現時点では `TranslationSettingsMapper.resolveLocaleLanguage` が固定で "ja" に
+    /// フォールバックする（真の自動検出は未実装。後続フェーズ）。
     public let translationSourceLanguage: String
     public let translationTargetLanguage: String
     public let privacyModeEnabled: Bool
