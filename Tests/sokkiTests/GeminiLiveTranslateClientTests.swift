@@ -13,18 +13,20 @@ struct GeminiLiveTranslateClientTests {
         ])
     }
 
-    @Test("setup は model・両 transcription・audio modality を含む")
+    @Test("setup は Live Translate モデル向けに両 transcription・audio modality・translationConfig を含む")
     func setupShape() throws {
         let message = try GeminiLiveMessageCodec.setupMessage(
-            model: "models/test", source: "ja", target: "en"
+            model: "models/test", targetLanguageCode: "en"
         )
         let root = try #require(try json(message))
         let setup = try #require(root["setup"] as? [String: Any])
         #expect(setup["model"] as? String == "models/test")
-        #expect(setup["inputAudioTranscription"] is [String: Any])
-        #expect(setup["outputAudioTranscription"] is [String: Any])
         let generation = try #require(setup["generationConfig"] as? [String: Any])
         #expect(generation["responseModalities"] as? [String] == ["AUDIO"])
+        #expect(generation["inputAudioTranscription"] is [String: Any])
+        #expect(generation["outputAudioTranscription"] is [String: Any])
+        let translation = try #require(generation["translationConfig"] as? [String: Any])
+        #expect(translation["targetLanguageCode"] as? String == "en")
         #expect(try GeminiLiveMessageCodec.isSetupComplete(#"{"setupComplete":{}}"#))
     }
 
@@ -83,6 +85,22 @@ struct GeminiLiveTranslateClientTests {
         #expect(GeminiLiveTranslateClient.mapError(MockFailure.broken) == .connectionFailed("broken"))
     }
 
+    @Test("transport error に含まれる BYO key を含む URL クエリを伏せ字にする")
+    func errorMappingRedactsAPIKeyFromURL() {
+        let underlying = NSError(
+            domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost,
+            userInfo: [
+                NSURLErrorFailingURLStringErrorKey: "wss://example.invalid/live?key=super-secret-value",
+            ]
+        )
+        guard case .connectionFailed(let message) = GeminiLiveTranslateClient.mapError(underlying) else {
+            Issue.record("connectionFailed を期待した")
+            return
+        }
+        #expect(!message.contains("super-secret-value"))
+        #expect(message.contains("key=<redacted>"))
+    }
+
     @Test("音声終了を通知し、確定訳で output stream と socket を閉じる")
     func audioLifecycle() async throws {
         let socket = MockWebSocket(responses: [
@@ -107,6 +125,35 @@ struct GeminiLiveTranslateClientTests {
         let messages = await socket.sentMessages
         #expect(messages.count == 3) // setup, PCM, audioStreamEnd
         #expect(messages.last?.contains("audioStreamEnd") == true)
+        let closes = await socket.closeCount
+        #expect(closes == 1)
+    }
+
+    @Test("turnComplete が transcription と別フレームで届いても最後の訳文で確定終了する")
+    func audioLifecycleWithTurnCompleteOnSeparateFrame() async throws {
+        // 公式ドキュメント上、transcription と turnComplete は独立に送信され順序保証が無いため、
+        // turnComplete だけが単独フレームで届くケースがある。このケースで受信ループが
+        // ハングしない（confirmしたテキストで確定して終了する）ことを検証する。
+        let socket = MockWebSocket(responses: [
+            #"{"setupComplete":{}}"#,
+            #"{"serverContent":{"outputTranscription":{"text":"Hello"}}}"#,
+            #"{"serverContent":{"turnComplete":true}}"#,
+        ])
+        let client = GeminiLiveTranslateClient(
+            keyProvider: StubKeyProvider(value: "test-key"), connector: MockConnector(socket: socket)
+        )
+        try await client.prepare(
+            source: Locale.Language(identifier: "ja"), target: Locale.Language(identifier: "en")
+        )
+        let input = AsyncStream<[Float]> { continuation in
+            continuation.yield([0, 1])
+            continuation.finish()
+        }
+        var outputs: [TranslationOutput] = []
+        for try await output in await client.translateAudioStream(input) { outputs.append(output) }
+
+        #expect(outputs.map(\.translatedText) == ["Hello", "Hello"])
+        #expect(outputs.map(\.isConcluded) == [false, true])
         let closes = await socket.closeCount
         #expect(closes == 1)
     }
