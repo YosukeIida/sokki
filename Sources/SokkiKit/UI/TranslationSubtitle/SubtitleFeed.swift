@@ -40,11 +40,15 @@ public final class SubtitleFeed {
     ///
     /// 1 未満を代入すると 1 に丸め、即座に再トリムする（`suffix`/`removeFirst` の前提条件を
     /// 崩さないため。init 時だけでなく setter 経由の変更でも安全に保つ）。
+    ///
+    /// - Note: Swift の `didSet` は自分自身の中でプロパティへ再代入しても再帰的には
+    ///   発火しない。そのため `maxLines = 1` の代入だけに頼らず、丸め後の値を確定させた
+    ///   うえで `trim()` を必ず明示的に呼ぶ（丸めた場合だけ `return` して `trim()` を
+    ///   スキップする、という早期 return の書き方は罠になるため避ける）。
     public var maxLines: Int {
         didSet {
             if maxLines < 1 {
                 maxLines = 1
-                return   // 再度 didSet が走り、以降の trim() まで到達する。
             }
             trim()
         }

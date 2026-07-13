@@ -126,6 +126,28 @@ struct SubtitleFeedTests {
         #expect(lines.first?.original == "b")
     }
 
+    @Test("負値クランプ後に内部ストレージも即座にトリムされる（表示 suffix だけに頼らない）")
+    func maxLinesSetterTrimsInternalStorageNotJustDisplay() {
+        // `makeLines` は常に `suffix(maxLines)` で表示件数を絞るため、内部の
+        // `order`/`originals` が実際にトリムされていなくても、直後の `makeLines` 呼び出し
+        // だけでは検出できない。maxLines を丸めた後にもう一度大きく増やし、
+        // 内部ストレージから本当に落ちているか（増やしても復活しないか）を確認する。
+        let feed = SubtitleFeed(maxLines: 6)
+        let ids = (0..<5).map { _ in UUID() }
+        for (i, id) in ids.enumerated() {
+            feed.pushConfirmed(id: id, text: "orig\(i)", sourceTime: TimeInterval(i))
+        }
+        #expect(feed.makeLines(translations: [:]).count == 5)
+
+        feed.maxLines = -1   // 1 に丸められ、didSet 内で trim() が明示的に呼ばれるべき。
+        #expect(feed.maxLines == 1)
+
+        feed.maxLines = 10   // 増やしても、内部ストレージから既に落ちた行は復活しない。
+        let lines = feed.makeLines(translations: [:])
+        #expect(lines.count == 1)
+        #expect(lines.first?.original == "orig4")
+    }
+
     @Test("原文が sourceTime の昇順以外で到着しても trim は表示と同じ基準（sourceTime）で古い行を落とす")
     func trimUsesSourceTimeOrderNotInsertionOrder() {
         let feed = SubtitleFeed(maxLines: 3)
