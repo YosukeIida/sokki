@@ -66,6 +66,47 @@ struct MeetingDetectorTests {
         detector.stop()
     }
 
+    @Test("pause()（録音開始等）では拒否状態が維持され、再開後も同一会議は再提案されない")
+    func pausePreservesDismissalAcrossRecording() async throws {
+        let provider = MockShareableContentProvider()
+        await provider.setStubbedWindows([
+            MeetingWindowInfo(bundleIdentifier: "us.zoom.xos", title: "Zoom Meeting"),
+        ])
+        let detector = MeetingDetector(provider: provider, pollInterval: .milliseconds(20))
+        detector.start()
+        try await waitUntil { detector.suggestion != nil }
+
+        // ユーザーが提案を拒否 → 手動で録音を開始（= pause）→ 録音停止（= start で再開）
+        detector.dismissCurrentSuggestion()
+        detector.pause()
+        #expect(detector.suggestion == nil)
+
+        detector.start()
+        // 同じ会議ウィンドウが出続けている間は、再開後も再提案されない。
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(detector.suggestion == nil)
+        detector.stop()
+    }
+
+    @Test("stop()（設定OFF等）では拒否状態もリセットされ、再開後は同一会議でも再提案される")
+    func stopResetsDismissal() async throws {
+        let provider = MockShareableContentProvider()
+        await provider.setStubbedWindows([
+            MeetingWindowInfo(bundleIdentifier: "us.zoom.xos", title: "Zoom Meeting"),
+        ])
+        let detector = MeetingDetector(provider: provider, pollInterval: .milliseconds(20))
+        detector.start()
+        try await waitUntil { detector.suggestion != nil }
+
+        detector.dismissCurrentSuggestion()
+        detector.stop()
+
+        detector.start()
+        try await waitUntil { detector.suggestion != nil }
+        #expect(detector.suggestion?.app == .zoom)
+        detector.stop()
+    }
+
     @Test("stop()中にin-flightだったpollが後から完了しても、stale な検出結果でsuggestionを復活させない")
     func inFlightPollDoesNotResurrectSuggestionAfterStop() async throws {
         let provider = GatedShareableContentProvider()

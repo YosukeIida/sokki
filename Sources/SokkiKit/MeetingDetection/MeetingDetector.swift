@@ -36,11 +36,19 @@ final class MeetingDetector {
         }
     }
 
-    /// ポーリングを停止し、提案・拒否状態をリセットする。
-    func stop() {
+    /// ポーリングを一時停止する（録音中など、同一会議セッションが続いている可能性がある場合）。
+    /// 拒否状態（「拒否したら同一会議セッション中は再提案しない」）は維持する。
+    /// 録音の開始は会議の終了を意味しないため、ここで `stateMachine.reset()` を呼んではいけない
+    /// （さもないと「拒否 → 手動録音 → 録音停止」の流れで同じ会議が再提案されてしまう）。
+    func pause() {
         pollingTask?.cancel()
         pollingTask = nil
         suggestion = nil
+    }
+
+    /// ポーリングを停止し、提案・拒否状態をリセットする（設定 OFF など機能自体を止める場合）。
+    func stop() {
+        pause()
         stateMachine.reset()
     }
 

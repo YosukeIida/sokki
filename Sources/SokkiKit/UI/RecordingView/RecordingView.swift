@@ -60,8 +60,15 @@ struct RecordingView: View {
     /// この関数（現在の望ましい状態を毎回再計算する冪等な処理）に統一している。
     /// これによりどちらが先に発火しても最終的な状態は「有効かつ非録音中なら動作中」に収束する。
     private func syncMeetingDetection() {
-        if meetingDetectionEnabled, !pipeline.isRunning {
-            meetingDetector.start()
+        if meetingDetectionEnabled {
+            if pipeline.isRunning {
+                // 録音中はポーリングを止めるが、拒否状態は維持する（pause）。
+                // 録音の開始は会議の終了ではないため、ここで stop() すると
+                // 「拒否 → 手動録音 → 録音停止」で同じ会議が再提案されてしまう。
+                meetingDetector.pause()
+            } else {
+                meetingDetector.start()
+            }
         } else {
             meetingDetector.stop()
         }
