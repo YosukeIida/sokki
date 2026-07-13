@@ -8,6 +8,12 @@ struct SegmentTimeRange: Sendable, Equatable {
     let end: Double
 }
 
+/// `AudioPlaybackController` の再生系メソッドで発生しうるエラー。
+enum AudioPlaybackError: Error, Sendable {
+    /// `AVAudioPlayer.play()` が `false` を返した（オーディオ出力の確保に失敗した等）。
+    case playFailed
+}
+
 /// 保存済み音声ファイルの再生を担当するコントローラ（FR-DATA-3 / TASK-33）。
 ///
 /// AVAudioPlayer を MainActor に閉じ込めてラップする。`currentTime` は
@@ -20,7 +26,10 @@ final class AudioPlaybackController: NSObject {
     /// 再生位置の表示更新間隔。
     private static let timeUpdateInterval: TimeInterval = 0.25
 
-    private var player: AVAudioPlayer?
+    /// - Note: セット可能なのは自身のみ（`private(set)`）。delegate コールバックが
+    ///   古い/無関係な `AVAudioPlayer` インスタンスからの通知かどうかを `===` で
+    ///   判定できるよう、テストからは `@testable import` で読み取り専用アクセスする。
+    private(set) var player: AVAudioPlayer?
     private var timer: Timer?
 
     /// 現在の再生位置（秒）。
@@ -61,9 +70,15 @@ final class AudioPlaybackController: NSObject {
     }
 
     /// 再生を開始する（一時停止していた位置から再開）。
+    /// - Note: `AVAudioPlayer.play()` が失敗（出力デバイス確保失敗等）した場合は
+    ///   `isPlaying` を `false` のままにし、タイマーも開始せず `playbackError` に記録する。
     func play() {
         guard let player else { return }
-        player.play()
+        guard player.play() else {
+            isPlaying = false
+            playbackError = AudioPlaybackError.playFailed
+            return
+        }
         isPlaying = true
         startTimer()
     }
@@ -138,12 +153,37 @@ final class AudioPlaybackController: NSObject {
 // MARK: - AVAudioPlayerDelegate
 
 extension AudioPlaybackController: AVAudioPlayerDelegate {
+    /// 再生が終了した（正常終了 or 中断）ときに呼ばれる。
+    /// - Note: `flag == false`（正常終了しなかった）場合は `duration` へスキップせず、
+    ///   実際に停止した位置（`player.currentTime`）を反映する。
+    /// - Note: `player`（`AVAudioPlayer`、非 Sendable）自体を `@MainActor` の Task へ
+    ///   キャプチャさせると "sending risks data race" になるため、Task に渡す前に
+    ///   `ObjectIdentifier`（Sendable）と `currentTime`（Double）へ変換しておく。
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        let notifiedPlayerID = ObjectIdentifier(player)
+        let lastKnownPosition = player.currentTime
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self,
+                  let current = self.player,
+                  ObjectIdentifier(current) == notifiedPlayerID else { return }
             self.isPlaying = false
             self.stopTimer()
-            self.currentTime = self.duration
+            self.currentTime = flag ? self.duration : lastKnownPosition
+        }
+    }
+
+    /// 再生中にデコードエラーが発生した（破損・途中欠損したファイル等）ときに呼ばれる。
+    /// - Note: このコールバックが未実装だと `audioPlayerDidFinishPlaying` も呼ばれず、
+    ///   `isPlaying` が `true` のまま・タイマーが動き続けたまま UI が固まる。
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        let notifiedPlayerID = ObjectIdentifier(player)
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let current = self.player,
+                  ObjectIdentifier(current) == notifiedPlayerID else { return }
+            self.isPlaying = false
+            self.stopTimer()
+            self.playbackError = error
         }
     }
 }
