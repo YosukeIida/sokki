@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct SessionDetailView: View {
     let session: SessionModel
@@ -24,8 +23,10 @@ struct SessionDetailView: View {
                         }
                     }
                     Divider()
-                    Button("ファイルへ保存…") {
-                        Task { await saveMarkdownToFile() }
+                    ForEach(ExportFormat.allCases, id: \.self) { format in
+                        Button("\(format.rawValue) としてファイルへ保存…") {
+                            Task { await saveToFile(format: format) }
+                        }
                     }
                 } label: {
                     Label("エクスポート", systemImage: "square.and.arrow.up")
@@ -40,10 +41,9 @@ struct SessionDetailView: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    private func saveMarkdownToFile() async {
-        let text = exportService.export(session: session, format: .markdown)
+    private func saveToFile(format: ExportFormat) async {
+        let text = exportService.export(session: session, format: format)
         let fileName = ExportSaveService.suggestedFileName(title: session.title, date: session.createdAt)
-        let markdownType = UTType(filenameExtension: "md") ?? .plainText
-        _ = await exportSaveService.save(text: text, suggestedFileName: fileName, contentType: markdownType)
+        _ = await exportSaveService.save(text: text, suggestedFileName: fileName, contentType: format.contentType)
     }
 }
