@@ -59,10 +59,17 @@ actor WhisperKitEngine: TranscriptionEngine {
         languageSetting = settingValue
     }
 
+    /// バッチ（`transcribe`）とリアルタイム（`decodeSegments`）が WhisperKit へ渡す `DecodingOptions` を
+    /// 組み立てる唯一の入口。両経路をこの seam に集約することで、言語設定を無視した素の
+    /// `DecodingOptions()` へ戻す退行を `WhisperKitEngineLanguageWiringTests` で検知できる（TASK-45）。
+    func currentDecodingOptions() -> DecodingOptions {
+        makeWhisperDecodingOptions(languageSetting: languageSetting)
+    }
+
     func transcribe(audioArray: [Float]) async throws -> [any TranscriptionSegment] {
         guard let wk = whisperKit else { throw TranscriptionEngineError.notPrepared }
 
-        let decodeOptions = makeWhisperDecodingOptions(languageSetting: languageSetting)
+        let decodeOptions = currentDecodingOptions()
         let results: [TranscriptionResult] = try await wk.transcribe(audioArray: audioArray, decodeOptions: decodeOptions)
         return results.flatMap(\.segments).compactMap { seg in
             let text = cleanText(seg.text)
@@ -169,9 +176,9 @@ actor WhisperKitEngine: TranscriptionEngine {
     private func decodeSegments(_ samples: [Float], clipStart: Float, isFinal: Bool = false) async throws -> [DecodedSegment] {
         guard let wk = whisperKit else { throw TranscriptionEngineError.notPrepared }
 
-        // バッチ経路（transcribe(audioArray:)）と同様に言語設定を反映する。
+        // バッチ経路（transcribe(audioArray:)）と同一の seam で言語設定を反映する。
         // ここを素の DecodingOptions() にすると「言語設定がバッチには効くがリアルタイムには効かない」不整合になる。
-        var options = makeWhisperDecodingOptions(languageSetting: languageSetting)
+        var options = currentDecodingOptions()
         options.clipTimestamps = [clipStart]
         if isFinal {
             options.windowClipTime = 0

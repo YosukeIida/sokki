@@ -33,8 +33,16 @@ actor MockTranscriptionEngine: TranscriptionEngine {
     /// 両ストリームが購読されていることを検証するために記録する。
     private(set) var receivedLanes: [AudioLane] = []
 
+    /// `setTranscriptionLanguage` が受け取った設定値の列（TASK-45）。RecordingView→pipeline→engine の
+    /// 文字起こし言語伝播が退行していないかを検証するために記録する。
+    private(set) var receivedLanguageSettings: [String?] = []
+
     private func recordLane(_ lane: AudioLane) {
         receivedLanes.append(lane)
+    }
+
+    func setTranscriptionLanguage(_ settingValue: String?) async {
+        receivedLanguageSettings.append(settingValue)
     }
 
     func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws {
