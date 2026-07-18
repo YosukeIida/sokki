@@ -85,6 +85,46 @@ struct SpeakerProfileStoreNamingTests {
         #expect(names == ["Speaker A", "Speaker B"])
     }
 
+    /// TASK-44 回帰テスト: 採番が existing.count 依存だと、中間のプロファイルを削除した後の
+    /// 新規話者が既存名と衝突する（A/B/C の B 削除 → count=2 で再び「話者C」）。
+    /// 使用中 displayName を避ける最小 index 採番により、削除で空いた「話者B」を埋め直し、
+    /// 既存の「話者C」と衝突しないことを検証する。
+    @Test("中間プロファイル削除後の新規話者は空いた名前を埋め、既存名と衝突しない")
+    func autoNamingDoesNotCollideAfterDeletion() async throws {
+        let container = try makeContainer()
+        let store = SpeakerProfileStore(
+            modelContext: ModelContext(container),
+            locale: Locale(identifier: "ja_JP")
+        )
+
+        // 話者A / 話者B / 話者C を作成（3 つの直交 embedding → 互いに別プロファイル）
+        _ = try await store.resolveProfiles(from: makeDiarizationResult(speakerCount: 3))
+
+        let readContext = ModelContext(container)
+        let initial = try readContext.fetch(FetchDescriptor<SpeakerProfileModel>())
+        #expect(Set(initial.map(\.displayName)) == ["話者A", "話者B", "話者C"])
+
+        // 中間の「話者B」を削除する
+        let toDelete = try #require(initial.first { $0.displayName == "話者B" })
+        try await store.deleteProfile(toDelete.id)
+
+        // 新規話者を 1 人追加（既存いずれとも直交する軸 → 必ず新規作成される）
+        let newSpeaker = DiarizationResult(
+            segments: [DiarizationSegment(
+                start: 0, end: 1, speakerID: "SPEAKER_NEW",
+                embedding: orthogonalEmbedding(axis: 10)
+            )],
+            numberOfSpeakers: 1
+        )
+        _ = try await store.resolveProfiles(from: newSpeaker)
+
+        let after = try ModelContext(container).fetch(FetchDescriptor<SpeakerProfileModel>())
+        let names = after.map(\.displayName)
+        // 空いた「話者B」を埋め、「話者C」との重複を作らない
+        #expect(Set(names) == ["話者A", "話者B", "話者C"])
+        #expect(names.count == Set(names).count) // displayName に重複がない
+    }
+
     @Test("26人目までは A〜Z、27人目で AA に桁上げする")
     func rolloverAtTwentySeventhSpeaker() async throws {
         let container = try makeContainer()
