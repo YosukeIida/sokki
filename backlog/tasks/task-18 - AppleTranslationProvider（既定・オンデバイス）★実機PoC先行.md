@@ -1,10 +1,10 @@
 ---
 id: TASK-18
 title: AppleTranslationProvider（既定・オンデバイス）★実機PoC先行
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-07-11 16:36'
-updated_date: '2026-07-13 16:50'
+updated_date: '2026-07-31 16:58'
 labels:
   - Phase2.5
 milestone: m-2
@@ -47,3 +47,13 @@ created: 2026-07-12 23:15
 実装完了・PR #80（opus 実装・codex クロスレビュー + 修正・マージ順 #70→#80）。他の PR と異なり **マージは実機 PoC 成功が前提条件**: (1) .translationTask closure 常駐 drain の成立 (2) 0pt ホストからのモデル DL 同意 UI 表示（Fallback 案は PR 本文）(3) ja↔en 実翻訳。Bridge は世代 ID + レジストリ + once-guard の状態機械、95テスト。PoC 成功後: マージ + Done 化 + Issue #37 クローズ + TASK-19 解放。
 ---
 <!-- COMMENTS:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+PR #80 マージ済み（マージコミット 60607d2）。AppleTranslationProvider / TranslationSessionBridge を世代ID + レジストリ + once-guardの状態機械として実装。codex-pr-review複数ラウンドでBLOCKER/MAJOR計7件を修正済み、100テスト全PASS。
+
+方針転換（2026-08-01・ユーザー判断）: 当初マージ前提条件としていた実機PoC（.translationTask常駐drain成立・0pt不可視ホストのDL同意UI・ja↔en実翻訳）は、コード実装自体はレビュー済みで問題ないため、実機PoC検証をTASK-59に切り出してマージを実行した。DI結線（TranslationHostViewの実アプリ組み込み）も未完了のため、TASK-59でDI結線+実機PoCの両方を扱う。
+
+Issue #37 はこのタスクの実装スコープ完了としてクローズ。実機検証の残課題はTASK-59（Issue #115）で追跡する。
+<!-- SECTION:FINAL_SUMMARY:END -->
