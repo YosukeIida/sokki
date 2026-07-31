@@ -4,7 +4,7 @@ title: RecordingView等の既存画面にデザイントークンを適用（再
 status: To Do
 assignee: []
 created_date: '2026-07-12 20:23'
-updated_date: '2026-07-12 20:23'
+updated_date: '2026-07-13 13:16'
 labels:
   - Phase1
   - design
@@ -33,6 +33,12 @@ Console（ダーク）/ Manuscript（ライト）両テーマで、DESIGN.md の
 - [ ] #2 録音ボタンを DESIGN.md の record-button-idle / record-button-recording 定義（56px 丸形背景 + 22px グリフ、recording 時は rec 色 50% 透過のリング）に合わせて実装する
 - [ ] #3 Console・Manuscript 両テーマで RenderPreview 等で目視確認する
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+PR #77 からの UI 申し送り: TranscriptionPipeline.isFinalizing（stop 後処理中は start() がサイレント no-op になる）が UI 非公開。RecordingView 再スタイリング時に isFinalizing を公開して録音ボタンの無効化 or 状態表示に配線すること。
+<!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

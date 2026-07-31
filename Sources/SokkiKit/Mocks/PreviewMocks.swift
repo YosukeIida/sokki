@@ -74,7 +74,7 @@ private actor PreviewTranscriptionEngine: TranscriptionEngine {
     var modelIdentifier = "preview"
     func prepare(onProgress: @escaping @Sendable (TranscriptionEngineLoadPhase) -> Void) async throws {}
     func transcribe(audioArray: [Float]) async throws -> [any TranscriptionSegment] { [] }
-    func transcribeStream(audioChunks: AsyncStream<AudioChunk>) -> AsyncThrowingStream<any TranscriptionSegment, Error> {
+    func transcribeStream(audioChunks: AsyncStream<AudioChunk>) -> AsyncThrowingStream<TranscriptionStreamUpdate, Error> {
         AsyncThrowingStream { $0.finish() }
     }
 }

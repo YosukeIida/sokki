@@ -101,3 +101,14 @@ public protocol TranslationProvider: Actor {
     /// socket / URLSession を確実に閉じる。冪等。
     func teardown() async
 }
+
+/// PCM 音声を直接扱える翻訳 provider の追加契約。
+///
+/// テキスト入力の既存 Coordinator とは意図的に分離し、音声配線は後続タスクで行う。
+/// Gemini Live では同一 ID の原文字幕を `isConcluded == false`、確定訳文を
+/// `isConcluded == true` として順に返す。現行 UI へは後続タスクで lane を分けて配線する。
+public protocol AudioTranslationProviding: TranslationProvider {
+    func translateAudioStream(
+        _ samples: AsyncStream<[Float]>
+    ) -> AsyncThrowingStream<TranslationOutput, Error>
+}

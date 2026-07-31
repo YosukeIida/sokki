@@ -124,3 +124,51 @@ struct TimestampTextTests {
         #expect(TimestampText.format(-5) == "00:00")
     }
 }
+
+// MARK: - Color(hex:)
+
+@Suite("Color(hex:)")
+struct ColorHexTests {
+
+    @Test("# 付き 6 桁 hex をパースできる")
+    func parsesWithHash() {
+        #expect(Color(hex: "#3B82F6") == Color(red: 0x3B / 255, green: 0x82 / 255, blue: 0xF6 / 255))
+    }
+
+    @Test("# なしでもパースできる")
+    func parsesWithoutHash() {
+        #expect(Color(hex: "3B82F6") == Color(hex: "#3B82F6"))
+    }
+
+    @Test("6 桁以外・16 進数でない文字列は nil")
+    func invalidReturnsNil() {
+        #expect(Color(hex: "#FFF") == nil)
+        #expect(Color(hex: "ZZZZZZ") == nil)
+    }
+}
+
+// MARK: - SegmentRow.barColor
+
+@Suite("SegmentRow barColor")
+struct SegmentRowBarColorTests {
+
+    @Test("同一 colorHex は同一色に解決される")
+    func sameHexSameColor() {
+        #expect(SegmentRow.barColor(colorHex: "#3B82F6") == SegmentRow.barColor(colorHex: "#3B82F6"))
+    }
+
+    @Test("colorHex が異なれば色も異なる")
+    func differentHexDifferentColor() {
+        #expect(SegmentRow.barColor(colorHex: "#3B82F6") != SegmentRow.barColor(colorHex: "#EF4444"))
+    }
+
+    @Test("プロファイル未割当（nil）はコントロールグレーにフォールバックする")
+    func nilFallsBackToControlGray() {
+        #expect(SegmentRow.barColor(colorHex: nil) == Color.secondary.opacity(0.3))
+    }
+
+    @Test("不正な hex もコントロールグレーにフォールバックする")
+    func invalidHexFallsBackToControlGray() {
+        #expect(SegmentRow.barColor(colorHex: "not-a-color") == Color.secondary.opacity(0.3))
+    }
+}

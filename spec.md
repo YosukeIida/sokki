@@ -495,7 +495,7 @@ let package = Package(
 |---|------|------|
 | D-1 | システム音声は単一 SCStream（代替）/ Core Audio Taps（既定） | デュアル SCStream はデバイスアクセス競合リスクがあるため不採用。SCStream は OutputType 分岐の単一構成に限定。D-10 で Core Audio Taps を既定に追加 |
 | D-10 | Core Audio Taps（ProcessTap）を既定のシステム音声キャプチャに | 画面収録権限不要、プロセス単位タップ、Recap の MIT 参照実装あり。SCStream は権限が必要なため代替に位置づけ |
-| D-11 | 話者分離は FluidAudio を推奨（SpeakerKit は代替） | SpeakerKit v1.0 は声紋 embedding を公開せず `embedding: nil`。声紋永続記憶に必須の embedding を `extractEmbedding()` で確実に取得できる FluidAudio を推奨。`DiarizationEngine` protocol でドロップイン交換 |
+| D-11 | 話者分離は FluidAudio 0.15.5 の `OfflineDiarizerManager` を既定（SpeakerKit は代替） | FluidAudio が各 segment に公開する 256 次元 WeSpeaker embedding を L2 正規化して声紋永続化へ渡す。CoreML モデルは `prepareModels()` で HuggingFace から初回取得し、取得・ロード失敗は `modelLoadFailed` として回復可能にする。SpeakerKit v1.0 は embedding を公開しないため代替として残し、`DiarizationEngine` protocol で交換可能にする |
 | D-12 | リアルタイム翻訳は `TranslationProvider` 抽象 + Apple Translation 既定 | オンデバイス・無料・プライバシーモード適合を既定に。Gemini Live Translate 等のクラウドは BYO key オプションとし、プレビュー/高コストを実験的扱い |
 | D-13 | ローカル完結はプライバシーモード（既定 ON）に格下げ | 完全ローカルを絶対条件から外し選択可能モード化。`isOnDevice == false` プロバイダは明示オプトイン時のみ起動許可 |
 | D-14 | クラウド送信可否は `TranslationGate.evaluate`（純粋関数・fail-closed）に一元化 | provider に権限判定を分散させない。真理値表を実機なしで全網羅テスト。「明示選択」と「自動FB」を区別し privacy ON では自動クラウドを拒否（`docs/translation-architecture.md` §5） |

@@ -1,10 +1,10 @@
 ---
 id: TASK-38
 title: 話者自動命名をロケール追従 SpeakerLabel に統一
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-11 18:39'
-updated_date: '2026-07-11 18:40'
+updated_date: '2026-07-13 09:05'
 labels:
   - Phase3
 milestone: m-3
@@ -27,6 +27,12 @@ SpeakerProfileStore.swift:70 の自動命名が「話者 1」「話者 2」形�
 - [ ] #2 既存テストが新命名規則で更新されていること
 <!-- AC:END -->
 
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+finalSummary: SpeakerProfileStore.findOrCreate の自動命名を日本語固定「話者 N」から SpeakerLabel.displayName（ロケール追従 ja=話者A / en=Speaker A、bijective base-26）に統一。locale: Locale = .current を actor プロパティとして注入可能にしテスト3件追加。codex レビュー APPROVE（MAJOR 指摘の採番衝突は既存欠陥として TASK-44/Issue #96 へ移送、MINOR テスト名誤記は修正済み）。PR #67 マージ済み（2026-07-13）。
+<!-- SECTION:NOTES:END -->
+
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 swift build が通る
@@ -34,3 +40,13 @@ SpeakerProfileStore.swift:70 の自動命名が「話者 1」「話者 2」形�
 - [ ] #3 project.yml 変更時は xcodegen generate を実行し entitlements の 3 権限（audio-input / screen-capture / network.client）が保持されていることを確認する
 - [ ] #4 対応する GitHub Issue がある場合は完了時に gh issue close でクローズして backlog と同期する
 <!-- DOD:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: claude
+created: 2026-07-12 21:39
+---
+実装完了・PR #67 作成済み（sonnet 実装・Fable レビュー済み・マージはユーザー承認待ち）。swift test 56件全て成功。マージ後に Done 化と Issue #61 クローズを行うこと。
+---
+<!-- COMMENTS:END -->

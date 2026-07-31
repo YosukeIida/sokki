@@ -152,7 +152,8 @@ final class SokkiUITests: XCTestCase {
         )
     }
 
-    /// TASK-7: 「ファイルへ保存…」で保存ダイアログが開くことを確認する。
+    /// TASK-7: 「ファイルへ保存…」（TASK-32 以降は形式別に「<形式> としてファイルへ保存…」）で
+    /// 保存ダイアログが開くことを確認する。
     /// 一時ストアに隔離されているため、このテスト自身で録音してセッションを用意する
     /// （他テストの実行順序や既存データに依存しない）。
     func testExportSaveDialogAppears() throws {
@@ -163,7 +164,10 @@ final class SokkiUITests: XCTestCase {
         XCTAssertTrue(exportButton.waitForExistence(timeout: 5))
         exportButton.click()
 
-        let saveMenuItem = app.menuItems["ファイルへ保存…"]
+        // TASK-32 でメニュー項目名が "ファイルへ保存…" から
+        // "<形式> としてファイルへ保存…"（形式ごとの ForEach）に変更されたため、
+        // 新しい文言に追従する（既定形式である Markdown で確認）。
+        let saveMenuItem = app.menuItems["Markdown としてファイルへ保存…"]
         XCTAssertTrue(saveMenuItem.waitForExistence(timeout: 5))
         saveMenuItem.click()
 

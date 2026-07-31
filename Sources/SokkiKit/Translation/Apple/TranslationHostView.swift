@@ -52,7 +52,16 @@ public struct TranslationHostView: View {
     }
 
     public var body: some View {
-        Color.clear
+        // `.translationTask` の id（`expected`）と drain ループへ渡す世代スナップショット
+        // （`expectedGeneration`）は、同じ MainActor 同期区間で一度だけ読む（codex 再レビュー
+        // BLOCKER 対応）。`configuration`/`currentGeneration` は bridge 側で await を挟まず
+        // 同時に更新されるため、この2値は常に一致した状態で観測できる。`expectedGeneration`
+        // （`Sendable` な `UInt64`）を closure に持たせることで、`beginDrain` 側でこの closure が
+        // 今も現行世代かを検証できる（`TranslationSession.Configuration` 自体は `Sendable` でない
+        // ため、これを nonisolated 文脈へ越境させることはできない）。
+        let expected = bridge.configuration
+        let expectedGeneration = bridge.generationSnapshot
+        return Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
             // `@Sendable` を付けて closure を nonisolated 化する。これで `session`（非 Sendable
@@ -61,10 +70,11 @@ public struct TranslationHostView: View {
             // データ競合なく呼べる。session はこの closure スコープ内に閉じ込める（§0 訂正 #1）。
             // drain ループは static `runDrainLoop` を直接呼ぶ（`LiveTranslationSession` を
             // `sending` で closure region ごと移し、インスタンスメソッド経由の region 分割を避ける）。
-            .translationTask(bridge.configuration) { @Sendable session in
+            .translationTask(expected) { @Sendable session in
                 await TranslationSessionBridge.runDrainLoop(
                     bridge: bridge,
-                    session: LiveTranslationSession(session: session)
+                    session: LiveTranslationSession(session: session),
+                    expectedGeneration: expectedGeneration
                 )
             }
     }

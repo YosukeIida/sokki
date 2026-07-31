@@ -267,4 +267,43 @@ struct TranslationCoordinatorTests {
         let tears = await blocking.teardownCallCount
         #expect(tears >= 1)                                // 作りかけ provider は teardown される
     }
+
+    // BLOCKER-1 回帰: 旧 reconcile が自身の teardown() の provider.teardown() suspension 中に
+    // 停止し、その間に新しい privacy ON reconcile が完走しても、旧 reconcile が復帰時に
+    // 最新世代を奪い返してクラウドを再起動してはならない（fail-closed / 最新設定が必ず勝つ）。
+    @Test("teardown suspension 中に privacy ON が完走したら、復帰した旧 reconcile はクラウドを再起動しない")
+    func staleReconcileDoesNotResurrectCloudAfterPrivacyOn() async {
+        let apple = MockTranslationProvider(providerID: "apple", isOnDevice: true)
+        let cloud = ControllableTeardownProvider(providerID: "deepL", isOnDevice: false)
+        let coordinator = TranslationCoordinator(
+            router: TranslationRouter(availability: MockAvailability(stub: .unsupported)),
+            keychain: MockAPIKeyChecking(keys: ["deepL"]),
+            appleProvider: apple,
+            makeBYO: { _ in cloud }
+        )
+
+        // 0) privacy OFF でクラウドを起動。
+        await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.deepL], order: [.deepL]))
+        #expect(coordinator.hasActiveProvider == true)
+        #expect(coordinator.isCloudActive == true)
+
+        // A) 旧 reconcile（privacy OFF のまま）を開始 → 冒頭 teardown で provider.teardown() が停止。
+        let stale = Task {
+            await coordinator.reconcile(ctx: ctx(privacy: false, registered: [.deepL], order: [.deepL]))
+        }
+        await waitUntil { await cloud.teardownStarted }
+
+        // B) その隙にユーザーが privacy ON → 新 reconcile が完走（denied）。
+        await coordinator.reconcile(ctx: ctx(privacy: true, registered: [.deepL], order: [.deepL]))
+        #expect(coordinator.hasActiveProvider == false)
+        #expect(coordinator.statusBanner == "プライバシーモードのため自動クラウド翻訳は無効です")
+
+        // A の teardown を復帰させ、旧 reconcile を最後まで走らせる。
+        await cloud.releaseTeardown()
+        await stale.value
+
+        // 最新のユーザー意図は privacy ON。旧 reconcile がクラウドを再起動してはならない。
+        #expect(coordinator.hasActiveProvider == false)
+        #expect(coordinator.isCloudActive == false)
+    }
 }

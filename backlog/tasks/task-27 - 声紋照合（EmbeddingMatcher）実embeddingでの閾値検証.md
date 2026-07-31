@@ -1,10 +1,10 @@
 ---
 id: TASK-27
 title: 声紋照合（EmbeddingMatcher）実embeddingでの閾値検証
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-07-11 16:36'
-updated_date: '2026-07-11 16:38'
+updated_date: '2026-07-13 13:40'
 labels:
   - Phase3
 milestone: m-3
@@ -25,3 +25,19 @@ EmbeddingMatcherは実装済み・テスト通過済み。実embeddingを用い�
 <!-- AC:BEGIN -->
 - [ ] #1 実 embeddingで閾値 0.82 の妥当性を検証する
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+finalSummary: 声紋閾値の設定配線（SettingsView スライダー 0.5〜0.95 → SessionManager → EmbeddingMatcher、既定 0.82）と類似度検証ハーネスを追加。codex レビューで MAJOR 1件修正: ハーネスの測定対象が実適用点と乖離 → SpeakerProfileStore.candidateMatchScores(for:) を新設し実照合スコアを DEBUG ログ出力（複数回録音での再認識を実データ検証可能に）。MINOR: 閾値の isFinite + クランプ + 回帰テスト6件。実測発見: NaN は SwiftData/SQLite 永続化で 0.0 に丸められる（±inf は保持）。PR #84 マージ済み（2026-07-13）。実機検証: 類似度分布 → 閾値 0.82 の最終判断（doc-1）。
+<!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: claude
+created: 2026-07-12 22:58
+---
+実装完了・PR #84 マージ可能判定（sonnet・Fable レビュー・マージ順 #68→#77→#84）。閾値設定の実配線 + 類似度レポートハーネス（DEBUG 限定 Logger 出力）、73テスト。実測（ユーザー）: 実会話での分布確認→閾値0.82 の Open Question クローズ。マージ後: Done 化 + Issue #46 クローズ。
+---
+<!-- COMMENTS:END -->

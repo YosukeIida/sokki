@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 enum ExportFormat: String, CaseIterable {
     case markdown    = "Markdown"
@@ -13,6 +14,14 @@ enum ExportFormat: String, CaseIterable {
         case .vtt:       "vtt"
         case .plainText: "txt"
         }
+    }
+
+    /// ファイル保存ダイアログ（NSSavePanel）に渡す UTType。
+    /// 拡張子から解決する（srt/vtt はシステム未登録のため動的型になるが、
+    /// preferredFilenameExtension は正しく拡張子を返す）。万一解決できない場合のみ
+    /// プレーンテキストにフォールバックする。
+    var contentType: UTType {
+        UTType(filenameExtension: fileExtension) ?? .plainText
     }
 }
 
