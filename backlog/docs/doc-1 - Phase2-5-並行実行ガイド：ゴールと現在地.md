@@ -37,9 +37,9 @@ Phase2〜5 並行実行のエントリーポイント。**2026-07-13 の並列�
 
 - SpeechAnalyzerEngine を #72 の setTranscriptionLanguage protocol メソッドに揃える（#82 コメント参照）
 - ProcessingCoordinator（#85）に diarization ジョブ（#77 系）を接続
-- KeychainService に APIKeyProviding 適合宣言 + DeepLTranslationProvider へ注入（#95 コメント参照）
+- KeychainService に APIKeyProviding 適合宣言 + BYO（Gemini Live）へ注入（#95 コメント参照。**D-18 で DeepL は撤去済み — TASK-58/#111**）
 - 字幕トグルの表示条件を translationEnabled（#93）に差し替え + LiveTranscriptView の2レーン化結線（#92 コメント参照）
-- TranslationCoordinator の appleProvider/makeBYO プレースホルダを実 provider（#80/#79/#86）に差し替え
+- TranslationCoordinator の appleProvider/makeBYO プレースホルダを実 provider（#80/#86。DeepL は D-18 で撤去）に差し替え + **TranslationHostView の DI 結線（#80 実機 PoC の前提条件）**
 - SettingsView / RecordingView / SegmentListView の複数 PR 間の小コンフリクト解消
 - スナップショット PNG の実機再記録（サンドボックス描画差のため）
 

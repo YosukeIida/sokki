@@ -4,7 +4,7 @@ title: BYO REST プロバイダ（DeepL優先 / Google Cloud v3は後回し）
 status: Done
 assignee: []
 created_date: '2026-07-11 16:36'
-updated_date: '2026-07-13 16:49'
+updated_date: '2026-07-13 19:12'
 labels:
   - Phase2.5
 milestone: m-2
@@ -32,6 +32,8 @@ DeepLはREST+単純キーで実装容易なためAppleフォールバック先�
 
 <!-- SECTION:NOTES:BEGIN -->
 finalSummary: DeepL REST 翻訳プロバイダ（BYO・/v2/translate・Free/Pro host 自動切替）を実装。codex レビューで MAJOR 2件修正（ZH-HANS/ZH-HANT/ES-419 の target 変種対応・HTTP 456 quota の専用分類。いずれも DeepL 公式ドキュメントと突き合わせ）。prepare() の言語ペア検証は Coordinator の差別化表示と一体で TASK-56/#109 へ移送。APIKeyProviding は #95 KeychainService と完全一致を確認（適合宣言は統合タスク）。PR #79 マージ済み（2026-07-14）。実機検証: 実 API キーでの翻訳確認。
+
+【2026-07-14 方向性判断】D-18 により DeepL プロバイダは完全撤去（TASK-58/#111）。BYO REST 翻訳はプロダクト方向性（オンデバイス優先 + LLM ベースリアルタイム翻訳）に対して不採用の判断。本タスクの実装は撤去されたが、レビューで整備した APIKeyProviding 抽象は Gemini BYO 用に存続。
 <!-- SECTION:NOTES:END -->
 
 ## Comments

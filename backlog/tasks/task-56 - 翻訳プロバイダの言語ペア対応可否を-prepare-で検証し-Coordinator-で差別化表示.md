@@ -4,7 +4,7 @@ title: 翻訳プロバイダの言語ペア対応可否を prepare() で検証�
 status: To Do
 assignee: []
 created_date: '2026-07-13 16:28'
-updated_date: '2026-07-13 16:28'
+updated_date: '2026-07-13 19:12'
 labels:
   - Phase2.5
 dependencies: []
@@ -15,7 +15,7 @@ ordinal: 59000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-PR #79（TASK-22）の codex レビュー [MAJOR] からの移送（codex とワーカーで意見対立 → 司令塔がフォローアップ判断）。(1) DeepLTranslationProvider.prepare() が言語ペア対応可否を検証せず、非対応ペアでも activate が成功して「クラウド送信中」バナーが出た後、最初のセグメント送信で初めて失敗する（一時的 false-positive）。静的 allow-list は陳腐化リスクがあるため DeepL の /v2/languages エンドポイントでの動的取得を検討。(2) TranslationCoordinator.activate() は .modelNotDownloaded 以外の失敗を一律 .failed → 汎用エラーバナーにしており、languagePairUnsupported を差別化する分岐がない — BYO プロバイダ全体に共通する設計論点のため「Coordinator がどう見せるか」まで含めて設計する。
+PR #79 レビュー [MAJOR] 由来だったが、**D-18（DeepL 撤去・TASK-58）により DeepL 部分は消滅**。残スコープ: TranslationCoordinator.activate() が .modelNotDownloaded 以外の失敗を一律 .failed → 汎用エラーバナーにしており、languagePairUnsupported 等の失敗種別を差別化する分岐がない。BYO（Gemini Live）や Apple provider の非対応言語ペア時に「なぜ失敗したか」をユーザーに提示できるよう、Coordinator の失敗差別化表示を設計・実装する。
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
