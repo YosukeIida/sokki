@@ -119,9 +119,18 @@ actor SpeakerProfileStore {
             return match
         }
 
-        let count = existing.count
+        // TASK-44: 採番を existing.count に頼ると、削除・rename のライフサイクルをまたいで
+        // 命名が衝突する（話者A/B/C の B を削除 → 次の新規が count=2 で再び「話者C」になり重複）。
+        // 使用中の displayName 集合を避けて最小の未使用 index を採番することで、ギャップを
+        // 埋めつつ既存名・手動 rename 名との衝突を防ぐ。allProfiles() は未保存の insert も
+        // 含むため、同一 resolveProfiles 呼び出し内で連続作成される話者同士も衝突しない。
+        let usedNames = Set(existing.map(\.displayName))
+        var index = 0
+        while usedNames.contains(SpeakerLabel.displayName(index: index, locale: locale)) {
+            index += 1
+        }
         let profile = SpeakerProfileModel(
-            displayName: SpeakerLabel.displayName(index: count, locale: locale),
+            displayName: SpeakerLabel.displayName(index: index, locale: locale),
             embedding: embedding
         )
         modelContext.insert(profile)
