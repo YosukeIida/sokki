@@ -16,10 +16,14 @@ struct RecordingViewSnapshotTests {
 
     private let size = CGSize(width: 800, height: 560)
 
+    // RecordingView は @Query（AppSettingsModel）と @Environment(\.modelContext) を使うため、
+    // SwiftUI 環境に .modelContainer を注入しないと @Query が空になりクエリ経路が検証されない（TASK-45）。
     @Test("アイドル状態")
     func idle() throws {
+        let deps = AppDependencyContainer.preview(pipeline: PreviewPipeline.idle())
         let view = wrap(RecordingView()
-            .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.idle())))
+            .environment(deps)
+            .modelContainer(deps.modelContainer))
         withSnapshotTesting(record: recordMode) {
             assertSnapshot(of: view, as: .image(size: size))
         }
@@ -27,8 +31,10 @@ struct RecordingViewSnapshotTests {
 
     @Test("ローディング状態（モデルDL中）")
     func loading() throws {
+        let deps = AppDependencyContainer.preview(pipeline: PreviewPipeline.loading())
         let view = wrap(RecordingView()
-            .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.loading())))
+            .environment(deps)
+            .modelContainer(deps.modelContainer))
         withSnapshotTesting(record: recordMode) {
             assertSnapshot(of: view, as: .image(size: size))
         }
@@ -36,8 +42,10 @@ struct RecordingViewSnapshotTests {
 
     @Test("録音中（テキストあり）")
     func recordingWithText() throws {
+        let deps = AppDependencyContainer.preview(pipeline: PreviewPipeline.recordingWithText())
         let view = wrap(RecordingView()
-            .environment(AppDependencyContainer.preview(pipeline: PreviewPipeline.recordingWithText())))
+            .environment(deps)
+            .modelContainer(deps.modelContainer))
         withSnapshotTesting(record: recordMode) {
             assertSnapshot(of: view, as: .image(size: size))
         }

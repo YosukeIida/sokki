@@ -158,6 +158,40 @@ struct TranscriptionPipelineCaptureModeTests {
         await cleanupAudioFiles(sessionManager)
     }
 
+    @Test("設定した文字起こし言語が pipeline.start 経由で engine.setTranscriptionLanguage に伝播する（TASK-45）")
+    func transcriptionLanguagePropagatesToEngine() async throws {
+        let container = try makeContainer()
+        let engine = MockTranscriptionEngine()
+        let (pipeline, sessionManager) = makePipeline(
+            systemTap: MockSystemAudioTap(), micTap: MockMicrophoneCapture(),
+            engine: engine, container: container
+        )
+
+        try await pipeline.start(mode: .micOnly, sessionTitle: "lang-ja", transcriptionLanguage: "ja")
+        try await pipeline.stop()
+
+        #expect(await engine.receivedLanguageSettings == ["ja"])
+
+        await cleanupAudioFiles(sessionManager)
+    }
+
+    @Test("transcriptionLanguage を省略した場合は nil（自動検出）が engine に伝播する（TASK-45）")
+    func omittedTranscriptionLanguagePropagatesNil() async throws {
+        let container = try makeContainer()
+        let engine = MockTranscriptionEngine()
+        let (pipeline, sessionManager) = makePipeline(
+            systemTap: MockSystemAudioTap(), micTap: MockMicrophoneCapture(),
+            engine: engine, container: container
+        )
+
+        try await pipeline.start(mode: .micOnly, sessionTitle: "lang-default")
+        try await pipeline.stop()
+
+        #expect(await engine.receivedLanguageSettings == [String?.none])
+
+        await cleanupAudioFiles(sessionManager)
+    }
+
     @Test("回帰 .systemOnly: system ストリームのみ購読し flush が完了する")
     func systemOnlyRegression() async throws {
         let container = try makeContainer()

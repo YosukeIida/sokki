@@ -84,3 +84,37 @@ struct TranscriptionLanguageTests {
         #expect(options.detectLanguage == false)
     }
 }
+
+/// TASK-45: WhisperKitEngine が `setTranscriptionLanguage` で受けた設定値を、実際に WhisperKit へ渡す
+/// `DecodingOptions` へ反映する配線を検証する。`makeWhisperDecodingOptions` 単体テスト（上記）だけでは
+/// 「engine 内部で languageSetting を無視し素の DecodingOptions() へ戻す」退行を検知できないため、
+/// engine が options を組み立てる唯一の入口 `currentDecodingOptions()` を直接検証する。
+@Suite("WhisperKitEngine 言語設定の decodeOptions 反映（TASK-45）")
+struct WhisperKitEngineLanguageWiringTests {
+
+    @Test("setTranscriptionLanguage(\"ja\") が固定言語の decodeOptions に反映される")
+    func fixedLanguageWiring() async {
+        let engine = WhisperKitEngine()
+        await engine.setTranscriptionLanguage("ja")
+        let options = await engine.currentDecodingOptions()
+        #expect(options.language == "ja")
+        #expect(options.detectLanguage == false)
+    }
+
+    @Test("setTranscriptionLanguage(\"auto\") は自動検出の decodeOptions を生成する")
+    func autoLanguageWiring() async {
+        let engine = WhisperKitEngine()
+        await engine.setTranscriptionLanguage("auto")
+        let options = await engine.currentDecodingOptions()
+        #expect(options.language == nil)
+        #expect(options.detectLanguage == true)
+    }
+
+    @Test("setTranscriptionLanguage 未呼び出しの既定は自動検出になる")
+    func defaultIsAutoDetect() async {
+        let engine = WhisperKitEngine()
+        let options = await engine.currentDecodingOptions()
+        #expect(options.language == nil)
+        #expect(options.detectLanguage == true)
+    }
+}
